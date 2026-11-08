@@ -27,12 +27,12 @@
 //    hip_amp:    髋部左右摆幅，用于把重心移到支撑脚
 //    foot_amp:   脚踝前后摆幅，决定步幅
 //    phase_deg:  髋/脚相位差，90 为 Otto 原始值；宽站距可试 95~110
-#define FLASHDUCK_WALK_HIP_OFFSET 25
-#define FLASHDUCK_WALK_HIP_AMP 44
-#define FLASHDUCK_WALK_FOOT_AMP 34
-#define FLASHDUCK_WALK_PHASE_DEG 108
-#define FLASHDUCK_WALK_SPEED 600
-#define FLASHDUCK_WALK_HEAD_SWING 24
+#define FLASHDUCK_WALK_HIP_OFFSET 15
+#define FLASHDUCK_WALK_HIP_AMP 20
+#define FLASHDUCK_WALK_FOOT_AMP 25
+#define FLASHDUCK_WALK_PHASE_DEG 75
+#define FLASHDUCK_WALK_SPEED 800
+#define FLASHDUCK_WALK_HEAD_SWING 15
 
 // -- Servo indexes for easy access
 //    摄像头版机械结构：脖子舵机接 GPIO7（原右手舵机位），嘴巴舵机接 GPIO4（原左手舵机位），腿脚不变

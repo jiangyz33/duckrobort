@@ -188,12 +188,20 @@ void ScheduleManager::Init() {
     }
     started_ = true;
     Load();
-    xTaskCreate(TaskEntry, "sched_task", 4096, this, 2, nullptr);
+    // 栈放大到 6K：注册 MCP 工具要构造一批 Property 对象，4K 偏紧
+    xTaskCreate(TaskEntry, "sched_task", 6144, this, 2, nullptr);
     ESP_LOGI(TAG, "定时提醒 / 待办服务已启动");
 }
 
 void ScheduleManager::TaskEntry(void* arg) {
     auto* self = static_cast<ScheduleManager*>(arg);
+
+    // MCP 工具延迟到 UI / 音频初始化完成后再注册。
+    // 若在板级初始化阶段（LVGL 尚未初始化）注册，会踩坏 LVGL 的堆元数据，
+    // 表现为 SetupUI -> ApplyPupil 里 lv_free 死循环 + 任务看门狗超时。
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    self->RegisterMcpTools();
+
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(kPollMs));
         self->Tick();

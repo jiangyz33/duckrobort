@@ -170,7 +170,7 @@ const char kHtml[] = R"HTML(<!doctype html>
 </div>
 
 <script>
-const FALLBACK = { hip_offset: 25, hip_amp: 44, foot_amp: 34, phase_deg: 108, speed: 600, head_swing: 24 };
+const FALLBACK = { hip_offset: 15, hip_amp: 20, foot_amp: 25, phase_deg: 75, speed: 800, head_swing: 15 };
 const ORIGINAL = { hip_offset: 0, hip_amp: 30, foot_amp: 30, phase_deg: 90, speed: 700, head_swing: 0 };
 const KEYS = Object.keys(FALLBACK);
 let busy = false;

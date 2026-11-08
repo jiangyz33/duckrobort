@@ -764,9 +764,8 @@ static FlashduckController* g_flashduck_controller = nullptr;
 void InitializeFlashduckController(const HardwareConfig& hw_config) {
     if (g_flashduck_controller == nullptr) {
         g_flashduck_controller = new FlashduckController(hw_config);
-        // 定时提醒：NVS 加载 + 轮询任务 + self.schedule.* MCP 工具
+        // 定时提醒：NVS 加载 + 轮询任务；MCP 工具由任务内部延迟注册
         ScheduleManager::GetInstance().Init();
-        ScheduleManager::GetInstance().RegisterMcpTools();
         ESP_LOGI(TAG, "Flashduck 控制器已初始化");
     }
 }
