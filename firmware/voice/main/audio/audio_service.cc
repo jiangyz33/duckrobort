@@ -1,6 +1,10 @@
 #include "audio_service.h"
+
 #include <esp_log.h>
+
 #include <cstring>
+
+#include "lip_sync.h"
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)                                        \
     (esp_ae_rate_cvt_cfg_t) {                                                                \
@@ -347,6 +351,10 @@ void AudioService::AudioOutputTask() {
         if (task.playback_id != 0 && callbacks_.on_playback_progress) {
             callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
         }
+
+        // 把这一块 PCM 的响度发布给舵机侧做唇形同步：
+        // 只有真正要出声时电平才非零，嘴巴才不会比声音先动。
+        LipSync::Publish(task.pcm.data(), task.pcm.size());
 
         codec_->OutputData(task.pcm);
 

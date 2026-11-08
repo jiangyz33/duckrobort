@@ -10,6 +10,7 @@
 
 #include "application.h"
 #include "assets/lang_config.h"
+#include "audio/lip_sync.h"
 #include "board.h"
 #include "flashduck_movements.h"
 #include "mcp_server.h"
@@ -31,9 +32,8 @@ private:
     bool has_head_ = false;
     bool is_action_in_progress_ = false;
     uint32_t next_idle_ms_ = 0;
-    // 说话嘴型
-    bool mouth_speaking_ = false;
-    bool mouth_open_ = false;
+    // 说话嘴型（由真实音频电平驱动）
+    int mouth_pos_ = -1;
     uint32_t next_mouth_ms_ = 0;
     FlashduckGaitParams gait_defaults_{FLASHDUCK_WALK_HIP_OFFSET, FLASHDUCK_WALK_HIP_AMP,
                                        FLASHDUCK_WALK_FOOT_AMP, FLASHDUCK_WALK_PHASE_DEG,
@@ -318,32 +318,45 @@ private:
 
     static uint32_t NowMs() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 
-    // 说话时的嘴型：不做真正的音频包络，而是用带随机抖动的开合模拟"在说话"。
-    // 幅度始终限制在 45~55°，不会顶到机械限位。
+    // 说话嘴型：由音频输出链路的真实响度驱动（见 audio/lip_sync.h）。
+    // 不再按设备状态猜——缓冲/静音阶段电平为 0 或过期，嘴巴保持闭合，
+    // 所以不会出现"先张嘴、TTS 后出声"的错位。
     void MaybeSpeakingMouth() {
         if (!has_head_ || is_action_in_progress_) {
             return;
         }
-        if (Application::GetInstance().GetDeviceState() != kDeviceStateSpeaking) {
-            if (mouth_speaking_) {
+
+        const uint32_t now = NowMs();
+        const bool playing = LipSync::Fresh(now, 250);
+        const int level = playing ? static_cast<int>(LipSync::Level()) : 0;
+
+        if (!playing || level < 5) {
+            if (mouth_pos_ != MOUTH_CLOSED) {
                 duck_.MoveSingle(MOUTH_CLOSED, MOUTH);
-                mouth_speaking_ = false;
+                mouth_pos_ = MOUTH_CLOSED;
             }
             return;
         }
-        mouth_speaking_ = true;
 
-        const uint32_t now = NowMs();
-        if (static_cast<int32_t>(now - next_mouth_ms_) < 0) {
+        if (mouth_pos_ != MOUTH_CLOSED &&
+            static_cast<int32_t>(now - next_mouth_ms_) < 0) {
             return;
         }
-        mouth_open_ = !mouth_open_;
-        int pos = MOUTH_CLOSED;
-        if (mouth_open_) {
-            pos = MOUTH_CLOSED + 4 + static_cast<int>(esp_random() % 7);  // 49~55°
+
+        // 响度映射到开口 2~12°；嘴巴硬限位 45~60°，留足余量
+        const int open = 2 + level * 10 / 100;
+        const int jitter = static_cast<int>(esp_random() % 3) - 1;
+        int pos = MOUTH_CLOSED + open + jitter;
+        if (pos < MOUTH_CLOSED) {
+            pos = MOUTH_CLOSED;
         }
+        if (pos > 57) {
+            pos = 57;
+        }
+
         duck_.MoveSingle(pos, MOUTH);
-        next_mouth_ms_ = now + (mouth_open_ ? (60 + esp_random() % 70) : (50 + esp_random() % 80));
+        mouth_pos_ = pos;
+        next_mouth_ms_ = now + 45;  // 约 22Hz，够跟上语速
     }
 
     void MaybeIdleGesture() {
