@@ -223,10 +223,19 @@ void ScheduleManager::Tick() {
     std::vector<int> to_remove;
 
     for (auto& item : items_) {
-        if (item.kind == kTodo) {
-            TickTodo(item, t, today, &changed);
-        } else {
-            TickReminder(item, t, today, &changed, &to_remove);
+        switch (item.kind) {
+            case kTodo:
+                TickTodo(item, t, today, &changed);
+                break;
+            case kTimer:
+                TickTimer(item, t, today, &changed, &to_remove);
+                break;
+            case kBriefing:
+                TickBriefing(item, t, today, &changed);
+                break;
+            default:
+                TickReminder(item, t, today, &changed, &to_remove);
+                break;
         }
     }
 
@@ -308,6 +317,144 @@ void ScheduleManager::TickTodo(Item& item, const struct tm& now, int today, bool
     item.last_day = today;
     *changed = true;
     // 待办不自动删除：等用户说"做完了"，由模型调用 self.todo.done
+}
+
+// ---------------------------------------------------------------- 倒计时 / 晨报
+void ScheduleManager::TickTimer(Item& item, const struct tm& now, int today, bool* changed,
+                                std::vector<int>* to_remove) {
+    if (item.last_day == today || item.date != today) {
+        return;
+    }
+    if (now.tm_hour != item.hour) {
+        return;
+    }
+    const int diff = now.tm_min - item.minute;
+    if (diff < 0 || diff > 2) {  // 倒计时窗口收紧到 2 分钟
+        return;
+    }
+    if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle) {
+        return;
+    }
+
+    std::string spoken = "【倒计时】时间到了，主人设的「" + item.text +
+                         "」到点了。请用一句话提醒他，语气轻松一点。";
+    ESP_LOGI(TAG, "触发倒计时 #%d -> %s", item.id, item.text.c_str());
+    if (!Application::GetInstance().SpeakProactive(spoken)) {
+        return;
+    }
+    item.last_day = today;
+    *changed = true;
+    to_remove->push_back(item.id);  // 一次性
+}
+
+void ScheduleManager::TickBriefing(Item& item, const struct tm& now, int today, bool* changed) {
+    if (item.last_day == today) {
+        return;
+    }
+    if (now.tm_hour != item.hour) {
+        return;
+    }
+    const int diff = now.tm_min - item.minute;
+    if (diff < 0 || diff > kReminderWindowMin) {
+        return;
+    }
+    if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle) {
+        return;
+    }
+
+    // 主动播报里让模型自己去调工具，这样天气/待办/新闻都是实时数据
+    std::string spoken =
+        "【早晨播报】现在是早上，请主动跟主人打个招呼并做一次今日播报："
+        "先用 get_weather_now 查今天的天气，再用 self.todo.list 看看有什么待办，"
+        "需要的话用 web_search 补一条新闻。三句话以内说完，语气温柔，句末带表情。";
+    ESP_LOGI(TAG, "触发晨报 #%d", item.id);
+    if (!Application::GetInstance().SpeakProactive(spoken)) {
+        return;
+    }
+    item.last_day = today;
+    *changed = true;
+}
+
+int ScheduleManager::AddTimer(int minutes, const std::string& label) {
+    if (minutes <= 0 || minutes > 24 * 60) {
+        return -1;
+    }
+    if (static_cast<int>(items_.size()) >= kMaxItems) {
+        return -2;
+    }
+    int ymd = 0;
+    int hour = 0;
+    int minute = 0;
+    if (!NowLocal(&ymd, &hour, &minute)) {
+        return -3;
+    }
+
+    int total = hour * 60 + minute + minutes;
+    const int day_add = total / (24 * 60);
+    total %= (24 * 60);
+
+    Item item;
+    item.id = next_id_++;
+    item.kind = kTimer;
+    item.date = ShiftDate(ymd, day_add);
+    item.hour = total / 60;
+    item.minute = total % 60;
+    item.text = label.empty() ? "倒计时" : label;
+    items_.push_back(item);
+    Save();
+    return item.id;
+}
+
+int ScheduleManager::CancelTimers() {
+    const size_t before = items_.size();
+    items_.erase(std::remove_if(items_.begin(), items_.end(),
+                                [](const Item& x) { return x.kind == kTimer; }),
+                 items_.end());
+    const int removed = static_cast<int>(before - items_.size());
+    if (removed > 0) {
+        Save();
+    }
+    return removed;
+}
+
+int ScheduleManager::SetBriefing(int hour, int minute) {
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return -1;
+    }
+    ClearBriefing();
+    if (static_cast<int>(items_.size()) >= kMaxItems) {
+        return -2;
+    }
+    Item item;
+    item.id = next_id_++;
+    item.kind = kBriefing;
+    item.hour = hour;
+    item.minute = minute;
+    item.text = "每日晨报";
+    items_.push_back(item);
+    Save();
+    return item.id;
+}
+
+int ScheduleManager::ClearBriefing() {
+    const size_t before = items_.size();
+    items_.erase(std::remove_if(items_.begin(), items_.end(),
+                                [](const Item& x) { return x.kind == kBriefing; }),
+                 items_.end());
+    if (items_.size() != before) {
+        Save();
+        return 1;
+    }
+    return 0;
+}
+
+bool ScheduleManager::HasBriefing() const {
+    for (const auto& it : items_) {
+        if (it.kind == kBriefing) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------- 增删查
@@ -606,6 +753,73 @@ void ScheduleManager::RegisterMcpTools() {
                         snprintf(buf, sizeof(buf), "没有编号为 %d 的待办", id);
                     }
                     return std::string(buf);
+                });
+
+    // ============ 倒计时 / 番茄钟 ============
+    mcp.AddTool(
+        "self.timer.start",
+        "设置倒计时或番茄钟。用户说「十分钟后提醒我」「定个25分钟的番茄钟」"
+        "「专注半小时」「帮我计时」时调用。minutes 是分钟数(1~1440)，label 是这次计时的名字。",
+        PropertyList({
+            Property("minutes", kPropertyTypeInteger, 25),
+            Property("label", kPropertyTypeString, std::string("")),
+        }),
+        [](const PropertyList& properties) -> ReturnValue {
+            const int minutes = properties["minutes"].value<int>();
+            auto label = properties["label"].value<std::string>();
+            const int id = ScheduleManager::GetInstance().AddTimer(minutes, label);
+            if (id == -3) {
+                return std::string("设备还没对时，等联网后再试");
+            }
+            if (id == -1) {
+                return std::string("分钟数要在 1~1440 之间");
+            }
+            if (id == -2) {
+                return std::string("条目太多了，先清理一下");
+            }
+            char buf[128];
+            snprintf(buf, sizeof(buf), "好，%d 分钟后叫你（编号 %d）", minutes, id);
+            return std::string(buf);
+        });
+
+    mcp.AddTool("self.timer.cancel", "取消所有还没到点的倒计时。", PropertyList(),
+                [](const PropertyList&) -> ReturnValue {
+                    const int n = ScheduleManager::GetInstance().CancelTimers();
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), n > 0 ? "取消了 %d 个倒计时" : "没有正在跑的倒计时", n);
+                    return std::string(buf);
+                });
+
+    // ============ 每日晨报 ============
+    mcp.AddTool(
+        "self.briefing.set",
+        "设置每日晨报：每天固定时刻主动播报天气、待办和一条新闻。"
+        "用户说「每天八点给我播个晨报」「早上叫我顺便说说天气」时调用。time 用 HH:MM。",
+        PropertyList({Property("time", kPropertyTypeString)}),
+        [](const PropertyList& properties) -> ReturnValue {
+            auto time = properties["time"].value<std::string>();
+            int hour = 0;
+            int minute = 0;
+            if (sscanf(time.c_str(), "%d:%d", &hour, &minute) != 2) {
+                return std::string("时间格式不对，要用 HH:MM，例如 08:00");
+            }
+            const int id = ScheduleManager::GetInstance().SetBriefing(hour, minute);
+            if (id == -1) {
+                return std::string("时间不合法");
+            }
+            if (id == -2) {
+                return std::string("条目太多了，先清理一下");
+            }
+            char buf[96];
+            snprintf(buf, sizeof(buf), "好，每天 %02d:%02d 给你播晨报（编号 %d）", hour, minute, id);
+            return std::string(buf);
+        });
+
+    mcp.AddTool("self.briefing.off", "关闭每日晨报。", PropertyList(),
+                [](const PropertyList&) -> ReturnValue {
+                    return std::string(ScheduleManager::GetInstance().ClearBriefing()
+                                           ? "晨报已关闭"
+                                           : "本来就没开晨报");
                 });
 
     ESP_LOGI(TAG, "MCP 工具注册完成（self.schedule.* + self.todo.*）");

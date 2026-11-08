@@ -39,6 +39,19 @@ public:
     /// 未完成待办（按时间排序，已逾期的标注出来）
     std::string ListTodoText() const;
 
+    // ---- 倒计时 / 番茄钟 ----
+    /// 从现在起 minutes 分钟后响一次；返回 id，-1 参数非法，-3 未对时
+    int AddTimer(int minutes, const std::string& label);
+    /// 取消所有未触发的倒计时，返回取消数量
+    int CancelTimers();
+
+    // ---- 每日晨报 ----
+    /// 设置每天 hour:minute 的晨报；返回 id
+    int SetBriefing(int hour, int minute);
+    /// 关闭晨报，返回 1 表示确实存在并已关闭
+    int ClearBriefing();
+    bool HasBriefing() const;
+
     // ---- 通用 ----
     bool Remove(int id);
     bool MarkDone(int id);
@@ -56,6 +69,8 @@ private:
     enum Kind : uint8_t {
         kReminder = 0,
         kTodo = 1,
+        kTimer = 2,     // 倒计时：一次性，到点提醒后自动删除
+        kBriefing = 3,  // 每日晨报：每天固定时刻主动播报
     };
 
     struct Item {
@@ -78,6 +93,9 @@ private:
     void TickReminder(Item& item, const struct tm& now, int today, bool* changed,
                       std::vector<int>* to_remove);
     void TickTodo(Item& item, const struct tm& now, int today, bool* changed);
+    void TickTimer(Item& item, const struct tm& now, int today, bool* changed,
+                   std::vector<int>* to_remove);
+    void TickBriefing(Item& item, const struct tm& now, int today, bool* changed);
     static void TaskEntry(void* arg);
 
     std::vector<Item> items_;
