@@ -3,7 +3,7 @@
 #include "display/lcd_display.h"
 
 /**
- * Flashduck 的单眼显示：屏幕上方 1/2 中间一个圆形眼睛。
+ * Flashduck 的双眼显示：屏幕中间一对 Kawaii 圆眼。
  * 瞳孔会随机扫视，眼睑随机眨动；不依赖 GIF/emoji 素材。
  */
 class FlashduckDisplay : public SpiLcdDisplay {
@@ -58,22 +58,22 @@ private:
     void ApplyPupil();
     void ApplyIrisColor();
     void ApplySparkle(uint32_t now, float dt_s);
-    void ApplyLashes(int top_height);
     void HideStatusLabel();
     void SelectStatusState(EyeState state);
     static EyeState StateForEmotion(const char* emotion);
     static EyeStyle StyleFor(EyeState state);
     static void OnEyeTimer(lv_timer_t* timer);
 
-    lv_obj_t* eye_root_ = nullptr;
-    lv_obj_t* sclera_ = nullptr;
-    lv_obj_t* iris_ = nullptr;
-    lv_obj_t* pupil_ = nullptr;
-    lv_obj_t* highlight_ = nullptr;
-    lv_obj_t* highlight2_ = nullptr;
-    lv_obj_t* lash_[3] = {nullptr, nullptr, nullptr};
-    lv_obj_t* lid_top_ = nullptr;
-    lv_obj_t* lid_bottom_ = nullptr;
+    // 两只眼睛（Kawaii 双圆眼）
+    static constexpr int kEyeCount = 2;
+    lv_obj_t* eye_root_[kEyeCount] = {nullptr, nullptr};
+    lv_obj_t* sclera_[kEyeCount] = {nullptr, nullptr};
+    lv_obj_t* iris_[kEyeCount] = {nullptr, nullptr};
+    lv_obj_t* pupil_[kEyeCount] = {nullptr, nullptr};
+    lv_obj_t* highlight_[kEyeCount] = {nullptr, nullptr};
+    lv_obj_t* highlight2_[kEyeCount] = {nullptr, nullptr};
+    lv_obj_t* lid_top_[kEyeCount] = {nullptr, nullptr};
+    lv_obj_t* lid_bottom_[kEyeCount] = {nullptr, nullptr};
     lv_timer_t* eye_timer_ = nullptr;
 
     uint32_t next_move_ms_ = 0;
