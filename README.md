@@ -476,3 +476,24 @@ location /music/ {
 | `self_music_stop` | 「别放了」「关掉音乐」 |
 
 > 停止播放的原理：推一条 0.15 秒的静音 OGG，顶掉当前流（NotifyPlayer 只认 audio_url，没有独立的 stop 通道）。
+
+---
+
+## 附：屏幕截图接口
+
+固件内置了一个调参用的截图接口，调眼睛/界面布局时不用靠猜：
+
+```
+GET http://<设备IP>/api/screen.bmp
+```
+
+返回当前屏幕的 240×240 24bit BMP（约 169 KB），用 LVGL 的 `lv_snapshot_take()` 实现。
+
+取回并转成 PNG：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\screen-shot.ps1
+powershell -ExecutionPolicy Bypass -File tools\screen-shot.ps1 -Device 192.168.1.11 -Out eye.png
+```
+
+> 注意：这是调试接口，抓屏时会临时分配 ~115 KB 内存。连续快速调用可能导致设备 HTTP 服务断连，间隔 2 秒以上比较稳。
