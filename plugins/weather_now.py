@@ -78,26 +78,43 @@ async def _geocode(name: str):
 
 async def _device_city(conn):
     """用设备公网 IP 反查城市，失败就用北京。"""
-    try:
-        ip_info = get_ip_info(conn.client_ip if conn else None)
-        city = (ip_info or {}).get("city")
-        if city:
-            return city
-    except Exception:  # noqa: BLE001
-        pass
+    ip_addr = getattr(conn, "client_ip", None) if conn is not None else None
+    if ip_addr:
+        try:
+            # 注意：get_ip_info 需要 (ip, logger) 两个参数
+            info = get_ip_info(ip_addr, logger)
+            city = (info or {}).get("city")
+            if city:
+                return city
+        except Exception as exc:  # noqa: BLE001
+            logger.bind(tag=TAG).warning(f"IP 定位失败: {exc}")
     return "北京"
 
 
-@register_function("get_weather_now", WEATHER_NOW_DESC, ToolType.WAIT)
+def _strip_suffix(name: str) -> str:
+    """「无锡市」→「无锡」，应对地理编码对后缀敏感的情况。"""
+    for suffix in ("特别行政区", "自治区", "自治州", "地区", "新区", "市辖区", "市", "区", "县"):
+        if name.endswith(suffix) and len(name) > len(suffix) + 1:
+            return name[: -len(suffix)]
+    return name
+
+
+@register_function("get_weather_now", WEATHER_NOW_DESC, ToolType.SYSTEM_CTL)
 async def get_weather_now(conn=None, location: str = ""):
-    # ToolType.WAIT 的调用方不会传 conn（只传 schema 里的参数），
-    # 所以这里必须给默认值，否则会抛 TypeError 并被念出来。
+    # SYSTEM_CTL 类型：执行器会以 func(conn, **schema参数) 的方式调用，
+    # 这样才拿得到 conn.client_ip 做 IP 定位（WAIT 类型不传 conn）。
+    # conn 仍然给默认值，兼容直接调用。
     city_name = (location or "").strip()
     if not city_name:
         city_name = await _device_city(conn)
 
     try:
         geo = await _geocode(city_name)
+        if not geo:
+            # 带后缀查不到时，去掉「市/区/县」再试一次
+            alt = _strip_suffix(city_name)
+            if alt != city_name:
+                geo = await _geocode(alt)
     except Exception as exc:  # noqa: BLE001
         logger.bind(tag=TAG).error(f"地理编码失败 {city_name}: {exc}")
         return ActionResponse(action=Action.RESPONSE, response="我这边查天气出了点问题，稍后再试吧。")
