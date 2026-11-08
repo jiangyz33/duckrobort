@@ -948,7 +948,7 @@ void Application::HandleWakeWordDetectedEvent() {
         if (state == kDeviceStateListening) {
             protocol_->SendStartListening(GetDefaultListeningMode());
             audio_service_.ResetDecoder();
-            audio_service_.PlaySound(Lang::Sounds::OGG_WAKE_REPLY);
+            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
         } else {
@@ -1011,6 +1011,10 @@ void Application::BeginWakeWordInvoke(const std::string& wake_word) {
         audio_service_.EnableWakeWordDetection(true);
         return;
     }
+
+    // 唤醒应答放在 Connecting 状态播：此时麦克风还没开，
+    // 不会把自己的声音当成用户输入（本机没有 AEC 参考通道）。
+    audio_service_.PlaySound(Lang::Sounds::OGG_WAKE_REPLY);
 
     if (!protocol_->IsAudioChannelOpened()) {
         // Schedule to let the state change be processed first (UI update),
@@ -1219,8 +1223,8 @@ void Application::StartListeningAudio() {
     // Play popup sound after ResetDecoder (in EnableVoiceProcessing) has been called
     if (play_popup_on_listening_) {
         play_popup_on_listening_ = false;
-        // 唤醒后应一声：内置音频，零延迟，不依赖服务端 TTS
-        audio_service_.PlaySound(Lang::Sounds::OGG_WAKE_REPLY);
+        // 唤醒应答已经在 Connecting 阶段播过了（那时麦克风是关的）。
+        // 这里不再出声，避免开麦后自激。
     }
 }
 
