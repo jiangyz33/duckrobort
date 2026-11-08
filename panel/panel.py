@@ -31,13 +31,15 @@ PROVIDERS = {
     "zhipu":    {"label": "智谱 GLM", "base": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4-flash"},
 }
 SF_MODEL = "FunAudioLLM/CosyVoice2-0.5B"
-# 达妮娅音色（硅基流动零样本复刻），两版参考音频
-DANIYA_V2 = "speech:daniya_v2:dbnk399719ns73fhvt0g:xyfxfctvgcbosyyfstkl"   # 24.5s 长独白
-DANIYA_V1 = "speech:daniya:dbnk399719ns73fhvt0g:psnyoyrgyonhlkkbzxsi"      # 14.1s 短句
+# 鸣潮角色音色（硅基流动零样本复刻）
+AEMEATH_URI = "speech:aemeath:dbnk399719ns73fhvt0g:yhlpsgdgjusjhtdyofxo"   # 爱弥斯 26s
+DANIYA_V2 = "speech:daniya_v2:dbnk399719ns73fhvt0g:xyfxfctvgcbosyyfstkl"   # 达妮娅 24.5s
+DANIYA_V1 = "speech:daniya:dbnk399719ns73fhvt0g:psnyoyrgyonhlkkbzxsi"      # 达妮娅 14.1s
 DANIYA_URI = DANIYA_V2
 SF_VOICES = [
-    (DANIYA_V2, "★ 达妮娅 v2（长独白 24.5s）"),
-    (DANIYA_V1, "☆ 达妮娅 v1（短句 14.1s）"),
+    (AEMEATH_URI, "★ 爱弥斯（鸣潮·复刻）"),
+    (DANIYA_V2, "达妮娅 v2（长独白 24.5s）"),
+    (DANIYA_V1, "达妮娅 v1（短句 14.1s）"),
     (f"{SF_MODEL}:anna", "Anna（女·温柔）"),
     (f"{SF_MODEL}:claire", "Claire（女·知性）"),
     (f"{SF_MODEL}:bella", "Bella（女·活泼）"),
@@ -60,8 +62,11 @@ VOICES = SF_VOICES + EDGE_VOICES
 FUNCTIONS = [
     ("web_search", "联网搜索（需搜索 key）"),
     ("get_weather_now", "查天气（免费·免 key）"),
+    ("self_music_play", "放音乐（自建曲库）"),
+    ("self_music_list", "看曲库里有什么"),
+    ("self_music_stop", "停音乐"),
+    ("get_lunar", "农历 / 黄历"),
     ("get_news_from_newsnow", "看新闻"),
-    ("play_music", "放音乐"),
     ("change_role", "切换角色"),
 ]
 

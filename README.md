@@ -428,3 +428,51 @@ services:
 
 能改的东西：人设、唤醒词、大模型、**长期记忆开关**、语音音色、技能启停、视觉模型、日志查看。
 保存后会重建整份 `.config.yaml` 并通过 docker socket 重启后端。
+
+---
+
+## 附：音乐播放
+
+设备端的 `NotifyPlayer` 只认 **OGG/Opus** 流，所以走「自建曲库 + 静态托管 + notify 推送」：
+
+```
+data/music/*.ogg   →  nginx  /music/  →  插件发 notify  →  设备拉流播放
+```
+
+**部署步骤**：
+
+1. 曲库目录：`/home/ubuntu/xiaozhi-server/data/music/`
+2. 网关挂载并开静态托管：
+
+```yaml
+# gateway/docker-compose.yml
+volumes:
+  - /home/ubuntu/xiaozhi-server/data/music:/usr/share/nginx/music:ro
+```
+
+```nginx
+location /music/ {
+    alias /usr/share/nginx/music/;
+    add_header Cache-Control "public, max-age=3600";
+}
+```
+
+3. 插件挂载（与天气插件同目录）：
+
+```yaml
+- ./plugins/music_play.py:/opt/xiaozhi-esp32-server/plugins_func/functions/music_play.py:ro
+```
+
+4. 面板「技能」里勾上 `self_music_play` / `self_music_list` / `self_music_stop`
+
+**加歌**：用 `tools/convert-music.ps1` 把 mp3 批量转成 OGG，再传到 `data/music/`。
+
+**三个工具**：
+
+| 工具 | 触发话术 |
+|---|---|
+| `self_music_play` | 「放首歌」「我想听 XXX」「来点轻音乐」 |
+| `self_music_list` | 「你能放什么歌」 |
+| `self_music_stop` | 「别放了」「关掉音乐」 |
+
+> 停止播放的原理：推一条 0.15 秒的静音 OGG，顶掉当前流（NotifyPlayer 只认 audio_url，没有独立的 stop 通道）。
