@@ -107,6 +107,13 @@ async def _send_notify(conn, url, text):
         "subtitles": [{"start_ms": 0, "text": text}] if text else [],
     }
     await conn.websocket.send(json.dumps(payload, ensure_ascii=False))
+    # 关键：让服务端在本次回复播完后挂断连接。
+    # 设备收到 notify 时如果还在对话中，会先排队；连接一断设备回到 Idle，
+    # 排队的 notify 才会真正开始播放。否则要等会话超时(120s)才响。
+    try:
+        conn.close_after_chat = True
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @register_function("self_music_play", MUSIC_PLAY_DESC, ToolType.SYSTEM_CTL)
