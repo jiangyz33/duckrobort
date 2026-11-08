@@ -6,8 +6,10 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "flashduck_controller.h"
+#include "lvgl.h"
 #include "wifi_manager.h"
 
 #define TAG "FlashduckWeb"
@@ -318,6 +320,80 @@ int JsonInt(const cJSON* root, const char* key, int fallback) {
     return cJSON_IsNumber(item) ? item->valueint : fallback;
 }
 
+#pragma pack(push, 1)
+struct BmpFileHeader {
+    uint16_t type;
+    uint32_t size;
+    uint16_t reserved1;
+    uint16_t reserved2;
+    uint32_t off_bits;
+    uint32_t info_size;
+    int32_t width;
+    int32_t height;
+    uint16_t planes;
+    uint16_t bit_count;
+    uint32_t compression;
+    uint32_t image_size;
+    int32_t x_ppm;
+    int32_t y_ppm;
+    uint32_t clr_used;
+    uint32_t clr_important;
+};
+#pragma pack(pop)
+
+/// GET /api/screen.bmp —— 抓一张当前屏幕的 24bit BMP。
+/// 调眼睛/界面时用来"照着看"，免得靠猜。
+esp_err_t ScreenBmpHandler(httpd_req_t* req) {
+    lv_draw_buf_t* shot = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
+    if (shot == nullptr) {
+        return SendError(req, "snapshot failed");
+    }
+    const int w = static_cast<int>(shot->header.w);
+    const int h = static_cast<int>(shot->header.h);
+    const int stride = static_cast<int>(shot->header.stride);
+
+    BmpFileHeader hdr{};
+    hdr.type = 0x4D42;  // 'BM'
+    hdr.off_bits = sizeof(BmpFileHeader);
+    hdr.info_size = 40;
+    hdr.width = w;
+    hdr.height = h;
+    hdr.planes = 1;
+    hdr.bit_count = 24;
+    hdr.image_size = static_cast<uint32_t>(w * 3) * static_cast<uint32_t>(h);
+    hdr.size = hdr.off_bits + hdr.image_size;
+    hdr.x_ppm = 2835;
+    hdr.y_ppm = 2835;
+
+    httpd_resp_set_type(req, "image/bmp");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_send_chunk(req, reinterpret_cast<const char*>(&hdr), sizeof(hdr));
+
+    // BMP 自下而上，逐行转 RGB565 -> BGR888
+    std::vector<uint8_t> row(static_cast<size_t>(w) * 3);
+    const auto* base = reinterpret_cast<const uint16_t*>(shot->data);
+    const int words_per_row = stride / 2;
+    for (int y = h - 1; y >= 0; --y) {
+        const uint16_t* src = base + static_cast<size_t>(y) * words_per_row;
+        for (int x = 0; x < w; ++x) {
+            const uint16_t p = src[x];
+            const uint8_t r = static_cast<uint8_t>(((p >> 11) & 0x1F) * 255 / 31);
+            const uint8_t g = static_cast<uint8_t>(((p >> 5) & 0x3F) * 255 / 63);
+            const uint8_t b = static_cast<uint8_t>((p & 0x1F) * 255 / 31);
+            row[x * 3 + 0] = b;
+            row[x * 3 + 1] = g;
+            row[x * 3 + 2] = r;
+        }
+        if (httpd_resp_send_chunk(req, reinterpret_cast<const char*>(row.data()), row.size()) !=
+            ESP_OK) {
+            break;
+        }
+    }
+    lv_draw_buf_destroy(shot);
+    httpd_resp_send_chunk(req, nullptr, 0);
+    return ESP_OK;
+}
+
 esp_err_t RootHandler(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -471,11 +547,18 @@ bool FlashduckWebServer::Start() {
     save.handler = SaveHandler;
     save.user_ctx = this;
 
+    httpd_uri_t screen = {};
+    screen.uri = "/api/screen.bmp";
+    screen.method = HTTP_GET;
+    screen.handler = ScreenBmpHandler;
+    screen.user_ctx = this;
+
     if (httpd_register_uri_handler(server_, &root) != ESP_OK ||
         httpd_register_uri_handler(server_, &walk) != ESP_OK ||
         httpd_register_uri_handler(server_, &stop) != ESP_OK ||
         httpd_register_uri_handler(server_, &status) != ESP_OK ||
         httpd_register_uri_handler(server_, &gait) != ESP_OK ||
+        httpd_register_uri_handler(server_, &screen) != ESP_OK ||
         httpd_register_uri_handler(server_, &save) != ESP_OK) {
         ESP_LOGE(TAG, "调参页面 URI 注册失败");
         httpd_stop(server_);
