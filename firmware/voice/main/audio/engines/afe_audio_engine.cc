@@ -141,6 +141,9 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         afe_config->vad_model_name = vad_model_name;
     }
     afe_config->wakenet_init = wake_detector_ == WakeDetector::kWakeNet;
+    // DET_MODE_95(Aggressive)：漏检更少、误唤醒略多。
+    // 默认的 DET_MODE_90 在环境有噪声时经常「喊了没反应」，这里换激进档。
+    afe_config->wakenet_mode = DET_MODE_95;
     afe_config->wakenet_model_name = nullptr;
     afe_config->wakenet_model_name_2 = nullptr;
     if (wake_detector_ == WakeDetector::kWakeNet && models_ != nullptr) {
