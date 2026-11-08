@@ -400,3 +400,31 @@ ffmpeg -i quack.mp3 -af "silenceremove=start_periods=1:start_threshold=-45dB" \
 ---
 
 <p align="center"><sub>ä¸€åªä½åœ¨æ¡Œä¸Šçš„å°é²¸ï¼Œé•¿ç€é¸­å­çš„èº«ä½“ ğŸ‹ğŸ¦†</sub></p>
+
+---
+
+## ¸½£º×Ô½¨ Web ¿ØÖÆÃæ°å
+
+`panel/panel.py` ¡ª¡ª Ò»¸ö 30KB µÄµ¥ÎÄ¼ş aiohttp Ãæ°å£¬Ìæ´ú¹Ù·½¿ØÖÆÌ¨£¨¹Ù·½ÄÇ¸ö¹¦ÄÜÌ«É¢£©¡£
+
+²¿Êğ£¨Óëºó¶ËÍ¬»ú£¬¹ÒÔÚ 8090£©£º
+
+```yaml
+services:
+  panel:
+    image: ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:server_latest
+    container_name: duck-panel
+    restart: always
+    volumes:
+      - ./panel:/app/panel:ro
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /app/panel
+    command: python panel.py
+    ports: ["127.0.0.1:8090:8090"]
+```
+
+·ÃÎÊ `http://<ÄãµÄ·şÎñÆ÷>/admin/`£¬Ä¬ÈÏÃÜÂë `duck-2026-admin`£¨**Çë¸Äµô**£©¡£
+
+ÄÜ¸ÄµÄ¶«Î÷£ºÈËÉè¡¢»½ĞÑ´Ê¡¢´óÄ£ĞÍ¡¢**³¤ÆÚ¼ÇÒä¿ª¹Ø**¡¢ÓïÒôÒôÉ«¡¢¼¼ÄÜÆôÍ£¡¢ÊÓ¾õÄ£ĞÍ¡¢ÈÕÖ¾²é¿´¡£
+±£´æºó»áÖØ½¨Õû·İ `.config.yaml` ²¢Í¨¹ı docker socket ÖØÆôºó¶Ë¡£
