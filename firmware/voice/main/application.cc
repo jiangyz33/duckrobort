@@ -948,7 +948,7 @@ void Application::HandleWakeWordDetectedEvent() {
         if (state == kDeviceStateListening) {
             protocol_->SendStartListening(GetDefaultListeningMode());
             audio_service_.ResetDecoder();
-            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            audio_service_.PlaySound(Lang::Sounds::OGG_WAKE_REPLY);
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
         } else {
@@ -1219,7 +1219,8 @@ void Application::StartListeningAudio() {
     // Play popup sound after ResetDecoder (in EnableVoiceProcessing) has been called
     if (play_popup_on_listening_) {
         play_popup_on_listening_ = false;
-        audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+        // 唤醒后应一声：内置音频，零延迟，不依赖服务端 TTS
+        audio_service_.PlaySound(Lang::Sounds::OGG_WAKE_REPLY);
     }
 }
 
