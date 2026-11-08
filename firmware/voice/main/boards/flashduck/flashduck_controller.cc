@@ -9,14 +9,19 @@
 #include <string>
 
 #include "application.h"
+#include "assets/lang_config.h"
 #include "board.h"
 #include "flashduck_movements.h"
 #include "mcp_server.h"
 #include "power_manager.h"
+#include "schedule_manager.h"
 #include "settings.h"
 #include "wifi_manager.h"
 
 #define TAG "FlashduckController"
+
+// 动作队列深度：满了就如实报错，避免模型以为动作执行了
+static constexpr int kActionQueueLen = 10;
 
 class FlashduckController {
 private:
@@ -26,6 +31,10 @@ private:
     bool has_head_ = false;
     bool is_action_in_progress_ = false;
     uint32_t next_idle_ms_ = 0;
+    // 说话嘴型
+    bool mouth_speaking_ = false;
+    bool mouth_open_ = false;
+    uint32_t next_mouth_ms_ = 0;
     FlashduckGaitParams gait_defaults_{FLASHDUCK_WALK_HIP_OFFSET, FLASHDUCK_WALK_HIP_AMP,
                                        FLASHDUCK_WALK_FOOT_AMP, FLASHDUCK_WALK_PHASE_DEG,
                                        FLASHDUCK_WALK_SPEED, FLASHDUCK_WALK_HEAD_SWING};
@@ -87,8 +96,13 @@ private:
         self->duck_.AttachServos();
 
         while (true) {
-            if (xQueueReceive(self->action_queue_, &params, pdMS_TO_TICKS(200)) != pdTRUE) {
+            // 说话时把轮询提速到 60ms，才能做出有节奏的嘴型
+            const bool speaking =
+                Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking;
+            const TickType_t wait = speaking ? pdMS_TO_TICKS(60) : pdMS_TO_TICKS(200);
+            if (xQueueReceive(self->action_queue_, &params, wait) != pdTRUE) {
                 self->MaybeIdleGesture();
+                self->MaybeSpeakingMouth();
                 continue;
             }
 
@@ -209,6 +223,8 @@ private:
                     const int cycles = std::clamp(params.steps, 1, 3);
                     const int amplitude = std::clamp(params.amount, 5, 12);
                     const int period = std::clamp(params.speed, 250, 600);
+                    // 先出声再动嘴，用的是 assets/common/quack.ogg（达妮娅音色合成）
+                    Application::GetInstance().PlaySound(Lang::Sounds::OGG_QUACK);
                     self->duck_.IdleLook(0, cycles, amplitude, 300, period, period);
                     break;
                 }
@@ -302,6 +318,34 @@ private:
 
     static uint32_t NowMs() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 
+    // 说话时的嘴型：不做真正的音频包络，而是用带随机抖动的开合模拟"在说话"。
+    // 幅度始终限制在 45~55°，不会顶到机械限位。
+    void MaybeSpeakingMouth() {
+        if (!has_head_ || is_action_in_progress_) {
+            return;
+        }
+        if (Application::GetInstance().GetDeviceState() != kDeviceStateSpeaking) {
+            if (mouth_speaking_) {
+                duck_.MoveSingle(MOUTH_CLOSED, MOUTH);
+                mouth_speaking_ = false;
+            }
+            return;
+        }
+        mouth_speaking_ = true;
+
+        const uint32_t now = NowMs();
+        if (static_cast<int32_t>(now - next_mouth_ms_) < 0) {
+            return;
+        }
+        mouth_open_ = !mouth_open_;
+        int pos = MOUTH_CLOSED;
+        if (mouth_open_) {
+            pos = MOUTH_CLOSED + 4 + static_cast<int>(esp_random() % 7);  // 49~55°
+        }
+        duck_.MoveSingle(pos, MOUTH);
+        next_mouth_ms_ = now + (mouth_open_ ? (60 + esp_random() % 70) : (50 + esp_random() % 80));
+    }
+
     void MaybeIdleGesture() {
         if (!has_head_ || is_action_in_progress_) {
             return;
@@ -343,7 +387,7 @@ private:
         }
     }
 
-    void QueueAction(int action_type, int steps, int speed, int direction, int amount,
+    bool QueueAction(int action_type, int steps, int speed, int direction, int amount,
                      int head_swing = 0,
                      int hip_offset = FLASHDUCK_WALK_HIP_OFFSET,
                      int hip_amp = FLASHDUCK_WALK_HIP_AMP,
@@ -351,8 +395,13 @@ private:
                      int phase_deg = FLASHDUCK_WALK_PHASE_DEG) {
         ActionParams params = {action_type, steps, speed, direction, amount, head_swing,
                                hip_offset, hip_amp, foot_amp, phase_deg};
-        xQueueSend(action_queue_, &params, portMAX_DELAY);
+        // 队列满了要如实告诉调用方，否则模型会以为动作已经执行了
+        if (xQueueSend(action_queue_, &params, 0) != pdTRUE) {
+            ESP_LOGW(TAG, "动作队列已满(%d)，丢弃 action=%d", kActionQueueLen, action_type);
+            return false;
+        }
         StartActionTaskIfNeeded();
+        return true;
     }
 
     FlashduckGaitParams ClampGait(FlashduckGaitParams gait) const {
@@ -425,7 +474,7 @@ public:
 
         LoadGaitDefaults();
         LoadTrimsFromNVS();
-        action_queue_ = xQueueCreate(10, sizeof(ActionParams));
+        action_queue_ = xQueueCreate(kActionQueueLen, sizeof(ActionParams));
         QueueAction(ACTION_HOME, 1, 1000, 0, 0);
         RegisterMcpTools();
     }
@@ -490,7 +539,11 @@ public:
             "嘴巴和趣味动作：quack(张嘴合嘴1~3次，steps=次数，amount=开口5~12)、"
             "chatter(快速小声咂嘴)、curious(侧头好奇+轻叫)、preen(侧头理羽+咂嘴)、"
             "happy_waddle(开心走两步+轻叫)、stretch(伸懒腰)、dance(小段鸭舞)、"
-            "peck(低头啄食+张嘴)、yawn(打哈欠)、sleepy(困倦)。"
+            "peck(低头啄食+张嘴)、yawn(打哈欠)、sleepy(困倦)；"
+            "走路花样：moonwalk(太空步)、bend(弯腰)、shake_leg(抖腿)、whirlwind_leg(风车腿)、"
+            "showcase(动作串烧展示)；纯嘴与情绪：mouth_open(张嘴保持)、mouth_close(闭嘴保持)、"
+            "mouth_move(嘴巴开合)、talk(说话嘴型)、laugh(大笑)、sing(唱歌嘴型)、"
+            "think(思考：侧头+小幅嘴动)、happy(开心：小摇头+嘴开合)。"
             "direction=1 表示前进/左转/左看，-1 表示后退/右转/右看，0 表示回正。",
             PropertyList({
                 Property("action", kPropertyTypeString, "home"),
@@ -505,6 +558,12 @@ public:
                 int speed = properties["speed"].value<int>();
                 int direction = properties["direction"].value<int>();
                 int amount = properties["amount"].value<int>();
+
+                // 队列满了就直接报错，别让模型以为动作已经执行了
+                if (action != "stop" && uxQueueSpacesAvailable(action_queue_) == 0) {
+                    return "错误：动作队列已满（机器人正在执行别的动作），"
+                           "请稍后再试；要打断它就先调用 self.flashduck.stop";
+                }
 
                 if (action == "walk") {
                     const auto& g = gait_defaults_;
@@ -559,10 +618,46 @@ public:
                 } else if (action == "sleepy") {
                     if (!has_head_) return "错误：没有嘴巴/脖子舵机";
                     QueueAction(ACTION_SLEEPY, steps, speed, 0, amount);
+                } else if (action == "moonwalk") {
+                    QueueAction(ACTION_MOONWALK, steps, speed, direction, amount);
+                } else if (action == "bend") {
+                    QueueAction(ACTION_BEND, steps, speed, direction, 0);
+                } else if (action == "shake_leg") {
+                    QueueAction(ACTION_SHAKE_LEG, steps, speed, direction, 0);
+                } else if (action == "whirlwind_leg") {
+                    QueueAction(ACTION_WHIRLWIND_LEG, steps, speed, 0, amount);
+                } else if (action == "showcase") {
+                    QueueAction(ACTION_SHOWCASE, 1, speed, 0, 0);
+                } else if (action == "mouth_open") {
+                    if (!has_head_) return "错误：没有嘴巴舵机";
+                    QueueAction(ACTION_MOUTH_OPEN, 1, speed, 0, 0);
+                } else if (action == "mouth_close") {
+                    if (!has_head_) return "错误：没有嘴巴舵机";
+                    QueueAction(ACTION_MOUTH_CLOSE, 1, speed, 0, 0);
+                } else if (action == "mouth_move") {
+                    if (!has_head_) return "错误：没有嘴巴舵机";
+                    QueueAction(ACTION_MOUTH_MOVE, steps, speed, 0, amount);
+                } else if (action == "talk") {
+                    if (!has_head_) return "错误：没有嘴巴舵机";
+                    QueueAction(ACTION_TALK, steps, speed, 0, amount);
+                } else if (action == "laugh") {
+                    if (!has_head_) return "错误：没有嘴巴舵机";
+                    QueueAction(ACTION_LAUGH, steps, speed, 0, amount);
+                } else if (action == "sing") {
+                    if (!has_head_) return "错误：没有嘴巴舵机";
+                    QueueAction(ACTION_SING, steps, speed, 0, amount);
+                } else if (action == "think") {
+                    if (!has_head_) return "错误：没有嘴巴/脖子舵机";
+                    QueueAction(ACTION_THINK, steps, speed, 0, amount);
+                } else if (action == "happy") {
+                    if (!has_head_) return "错误：没有嘴巴/脖子舵机";
+                    QueueAction(ACTION_HAPPY, steps, speed, 0, amount);
                 } else {
                     return "错误：无效动作。可用动作：walk, turn, jump, swing, updown, sit, home, "
                            "head_turn, head_shake, look_around, quack, chatter, curious, preen, "
-                           "happy_waddle, stretch, dance, peck, yawn, sleepy";
+                           "happy_waddle, stretch, dance, peck, yawn, sleepy, "
+                           "moonwalk, bend, shake_leg, whirlwind_leg, showcase, "
+                           "mouth_open, mouth_close, mouth_move, talk, laugh, sing, think, happy";
                 }
                 return true;
             });
@@ -669,6 +764,9 @@ static FlashduckController* g_flashduck_controller = nullptr;
 void InitializeFlashduckController(const HardwareConfig& hw_config) {
     if (g_flashduck_controller == nullptr) {
         g_flashduck_controller = new FlashduckController(hw_config);
+        // 定时提醒：NVS 加载 + 轮询任务 + self.schedule.* MCP 工具
+        ScheduleManager::GetInstance().Init();
+        ScheduleManager::GetInstance().RegisterMcpTools();
         ESP_LOGI(TAG, "Flashduck 控制器已初始化");
     }
 }

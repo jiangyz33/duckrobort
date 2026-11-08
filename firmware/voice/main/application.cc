@@ -297,6 +297,8 @@ void Application::Run() {
             HideStartupWakeWordHint();
         }
         ShowStartupWakeWordHint();
+        // 回到空闲时补播排队的 notify（服务器主动推送）
+        TryStartPendingNotification();
     }
 }
 
@@ -509,7 +511,11 @@ void Application::CheckNewVersion() {
                     break;
                 }
             }
-            retry_delay *= 2;  // Double the retry delay
+            // 指数退避但封顶 60 秒：原来无上限翻倍会让设备在网络异常时
+            // 卡在 activating 状态长达 85 分钟（唤醒词也不工作）。
+            if (retry_delay < 60) {
+                retry_delay *= 2;
+            }
             continue;
         }
         retry_count = 0;
@@ -956,6 +962,42 @@ void Application::HandleWakeWordDetectedEvent() {
     }
 }
 
+bool Application::SpeakProactive(const std::string& text) {
+    if (text.empty()) {
+        return false;
+    }
+    if (GetDeviceState() != kDeviceStateIdle || protocol_ == nullptr) {
+        return false;
+    }
+    if (!SetDeviceState(kDeviceStateConnecting)) {
+        return false;
+    }
+    // 让状态切换先跑完（UI 更新），再去做可能阻塞 1 秒的 OpenAudioChannel
+    Schedule([this, text]() { ContinueProactiveSpeak(text); });
+    return true;
+}
+
+void Application::ContinueProactiveSpeak(const std::string& text) {
+    if (GetDeviceState() != kDeviceStateConnecting) {
+        return;
+    }
+    auto& board = Board::GetInstance();
+    board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+
+    if (!protocol_->IsAudioChannelOpened()) {
+        if (!protocol_->OpenAudioChannel()) {
+            SetDeviceState(kDeviceStateIdle);
+            return;
+        }
+    }
+
+    ESP_LOGI(TAG, "主动播报: %s", text.c_str());
+    // 和唤醒流程保持一致：先把文本当作"已识别的话"上报，服务端会走 LLM + TTS
+    play_popup_on_listening_ = true;
+    protocol_->SendWakeWordDetected(text);
+    SetListeningMode(GetDefaultListeningMode());
+}
+
 void Application::BeginWakeWordInvoke(const std::string& wake_word) {
     // Must run in the main task with the device in idle state
     audio_service_.EncodeWakeWord();
@@ -1192,8 +1234,16 @@ void Application::ConfigureWakeWordForListening() {
 }
 
 void Application::StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles) {
+    // 会话忙时不丢弃：暂存下来，回到 idle 再播（服务器主动推送依赖这个）。
     if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy()) {
-        ESP_LOGW(TAG, "Ignoring notify message while device is busy");
+        if (has_pending_notify_) {
+            ESP_LOGW(TAG, "Notify 队列已有一条待播，覆盖为最新一条");
+        } else {
+            ESP_LOGI(TAG, "设备正忙，notify 已排队，回到 idle 后播放");
+        }
+        pending_notify_url_ = std::move(audio_url);
+        pending_notify_subtitles_ = std::move(subtitles);
+        has_pending_notify_ = true;
         return;
     }
 
@@ -1235,6 +1285,19 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
         ESP_LOGE(TAG, "Failed to start notification playback");
         StopNotification();
     }
+}
+
+void Application::TryStartPendingNotification() {
+    if (!has_pending_notify_ || GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy()) {
+        return;
+    }
+    has_pending_notify_ = false;
+    std::string url = std::move(pending_notify_url_);
+    std::vector<NotifySubtitle> subs = std::move(pending_notify_subtitles_);
+    pending_notify_url_.clear();
+    pending_notify_subtitles_.clear();
+    ESP_LOGI(TAG, "设备已空闲，开始播放排队的 notify");
+    StartNotification(std::move(url), std::move(subs));
 }
 
 void Application::StopNotification() {

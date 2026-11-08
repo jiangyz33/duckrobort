@@ -6,6 +6,7 @@
 #include <esp_lcd_panel_vendor.h>
 #include <esp_log.h>
 #include <esp_rom_sys.h>
+#include <esp_system.h>
 
 #include <new>
 
@@ -21,8 +22,11 @@
 #include "flashduck_display.h"
 #include "flashduck_web_server.h"
 #include "power_manager.h"
+#include "settings.h"
 #include "system_reset.h"
 #include "wifi_board.h"
+
+#include <wifi_manager.h>
 
 #define TAG "FlashduckRobot"
 
@@ -335,6 +339,7 @@ private:
 
     void StartNetwork() override {
         WifiBoard::StartNetwork();
+        StartNetWatchdog();
         vTaskDelay(pdMS_TO_TICKS(1000));
         if (web_server_ == nullptr) {
             web_server_ = new FlashduckWebServer();
@@ -343,6 +348,59 @@ private:
                 web_server_ = nullptr;
             }
         }
+    }
+
+    // ---- 联网看门狗 ----
+    // 现象：路由器 DHCP 不给地址时，WiFi 关联成功但永远拿不到 IP，
+    // 设备会卡在"没有连接网络"，唤醒词也不工作，只能人工拔电。
+    // 策略：50 秒内没 IP -> 自动重启（最多 2 次）；第 3 次仍失败 -> 进配网模式。
+    // 一旦联网成功或已进配网模式，立刻清零计数并退出。
+    void StartNetWatchdog() {
+        static bool started = false;
+        if (started) {
+            return;
+        }
+        started = true;
+        xTaskCreate(NetWatchdogTask, "net_watchdog", 4096, this, 2, nullptr);
+    }
+
+private:
+    static void NetWatchdogTask(void* arg) {
+        auto* board = static_cast<FlashduckRobot*>(arg);
+        auto& wifi = WifiManager::GetInstance();
+
+        // 每 5 秒查一次，共 10 次（50 秒），赶在 60 秒的配网兜底之前
+        for (int i = 0; i < 10; i++) {
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            if (wifi.IsConnected()) {
+                Settings settings("net", true);
+                if (settings.GetInt("fail_boots", 0) != 0) {
+                    settings.SetInt("fail_boots", 0);
+                }
+                ESP_LOGI(TAG, "联网正常，看门狗退出");
+                vTaskDelete(nullptr);
+                return;
+            }
+            if (board->IsInWifiConfigMode()) {
+                ESP_LOGI(TAG, "已进入配网模式，看门狗退出");
+                vTaskDelete(nullptr);
+                return;
+            }
+        }
+
+        Settings settings("net", true);
+        int fails = settings.GetInt("fail_boots", 0);
+        if (fails < 2) {
+            settings.SetInt("fail_boots", fails + 1);
+            ESP_LOGW(TAG, "50 秒仍未拿到 IP，第 %d 次自动重启（最多 2 次）", fails + 1);
+            vTaskDelay(pdMS_TO_TICKS(800));
+            esp_restart();
+        }
+
+        settings.SetInt("fail_boots", 0);
+        ESP_LOGE(TAG, "重启后仍无法联网，进入配网模式");
+        board->EnterWifiConfigMode();
+        vTaskDelete(nullptr);
     }
 
 public:

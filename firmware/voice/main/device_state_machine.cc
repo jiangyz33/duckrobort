@@ -98,8 +98,9 @@ bool DeviceStateMachine::IsValidTransition(DeviceState from, DeviceState to) con
             return to == kDeviceStateIdle;
 
         case kDeviceStateFatalError:
-            // Cannot transition out of fatal error
-            return false;
+            // 致命错误允许回到 idle，否则设备会永久卡死、只能断电。
+            // 调用方负责在回到 idle 前把错误原因提示给用户。
+            return to == kDeviceStateIdle;
 
         default:
             return false;

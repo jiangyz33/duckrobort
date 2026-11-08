@@ -139,28 +139,37 @@ void FlashduckDisplay::SetStatus(const char* status) {
     }
 
     if (strcmp(status, Lang::Strings::STANDBY) == 0) {
-        SetEyeState(EyeState::Idle);
+        SelectStatusState(EyeState::Idle);
     } else if (strcmp(status, Lang::Strings::LISTENING) == 0) {
-        SetEyeState(EyeState::Listening);
+        SelectStatusState(EyeState::Listening);
     } else if (strcmp(status, Lang::Strings::SPEAKING) == 0) {
-        SetEyeState(EyeState::Speaking);
+        SelectStatusState(EyeState::Speaking);
     } else if (strcmp(status, Lang::Strings::CONNECTING) == 0 ||
                strcmp(status, Lang::Strings::SCANNING_WIFI) == 0 ||
                strcmp(status, Lang::Strings::WIFI_CONFIG_MODE) == 0 ||
                strcmp(status, Lang::Strings::REGISTERING_NETWORK) == 0 ||
                strcmp(status, Lang::Strings::DETECTING_MODULE) == 0) {
-        SetEyeState(EyeState::Scanning);
+        SelectStatusState(EyeState::Scanning);
     } else if (strcmp(status, Lang::Strings::ACTIVATION) == 0 ||
                strcmp(status, Lang::Strings::LOADING_PROTOCOL) == 0 ||
                strcmp(status, Lang::Strings::CHECKING_NEW_VERSION) == 0) {
-        SetEyeState(EyeState::Connected);
+        SelectStatusState(EyeState::Connected);
     } else if (strncmp(status, Lang::Strings::CONNECTED_TO,
                        strlen(Lang::Strings::CONNECTED_TO)) == 0) {
-        SetEyeState(EyeState::Connected);
+        SelectStatusState(EyeState::Connected);
     } else if (strncmp(status, Lang::Strings::CONNECT_TO,
                        strlen(Lang::Strings::CONNECT_TO)) == 0) {
-        SetEyeState(EyeState::Scanning);
+        SelectStatusState(EyeState::Scanning);
     }
+}
+
+void FlashduckDisplay::SelectStatusState(EyeState state) {
+    status_state_ = state;
+    // 表情还在展示中时，先记下基础神态，等它播完再切。
+    if (state_hold_until_ != 0 && static_cast<int32_t>(lv_tick_get() - state_hold_until_) < 0) {
+        return;
+    }
+    SetEyeState(state);
 }
 
 void FlashduckDisplay::ShowNotification(const char* notification, int duration_ms) {
@@ -186,29 +195,80 @@ void FlashduckDisplay::ShowNotification(const char* notification, int duration_m
 }
 
 FlashduckDisplay::EyeStyle FlashduckDisplay::StyleFor(EyeState state) {
+    // 字段顺序：上眼睑/下眼睑/瞳孔缩放/扫视幅度x/y/移动间隔/眨眼间隔/虹膜色/
+    //          高光绕行半径/高光角速度/瞳孔呼吸幅度
     switch (state) {
         case EyeState::Scanning:
-            // 扫描/连接：冷青色虹膜、瞳孔缩小、眼睛睁大并左右扫视。
+            // 扫描/连接：冷青色虹膜、瞳孔缩小、眼睛睁大并左右扫视，高光快速游走。
             return {0.08f, 0.02f, 0.70f, 12.0f, 3.0f, 900, 1400, 3000, 6500,
-                    lv_color_hex(0x2FD0FF)};
+                    lv_color_hex(0x2FD0FF), 4.5f, 90.0f, 0.04f};
         case EyeState::Connected:
             // 已连接：绿色虹膜 + 明显月牙眯眼，短暂停留后回待机。
             return {0.52f, 0.28f, 1.10f, 2.0f, 1.0f, 2000, 3000, 2500, 5000,
-                    lv_color_hex(0x52E37A)};
+                    lv_color_hex(0x52E37A), 3.0f, 60.0f, 0.03f};
         case EyeState::Listening:
             // 聆听：紫罗兰虹膜、完全睁大、瞳孔放到最大、眼神定住。
             return {0.00f, 0.00f, 1.35f, 3.0f, 2.0f, 1500, 3000, 5000, 9000,
-                    lv_color_hex(0x9B7BFF)};
+                    lv_color_hex(0x9B7BFF), 5.5f, 45.0f, 0.06f};
         case EyeState::Speaking:
             // 说话：橙色虹膜、眼睛明亮、眼神更活跃、眨眼更频繁。
             return {0.10f, 0.02f, 1.15f, 11.0f, 5.0f, 400, 1000, 1600, 3000,
-                    lv_color_hex(0xFF5A2A)};
+                    lv_color_hex(0xFF5A2A), 6.0f, 150.0f, 0.08f};
+        case EyeState::Happy:
+            // 开心：弯成月牙、金光、瞳孔放大、高光欢快跳动。
+            return {0.02f, 0.06f, 1.22f, 10.0f, 6.0f, 500, 1200, 1400, 2800,
+                    lv_color_hex(0xFFD24A), 6.0f, 160.0f, 0.08f};
+        case EyeState::Curious:
+            // 好奇：睁到最大、瞳孔收缩聚焦、扫视幅度最大，高光中速绕行。
+            return {0.06f, 0.00f, 1.28f, 14.0f, 9.0f, 500, 1500, 2600, 5200,
+                    lv_color_hex(0x2FD0FF), 5.0f, 110.0f, 0.05f};
+        case EyeState::Sleepy:
+            // 困倦：眼睑压到一半、瞳孔略缩、动作极慢、虹膜发暗。
+            return {0.56f, 0.24f, 0.92f, 4.0f, 2.0f, 2200, 4200, 5200, 9000,
+                    lv_color_hex(0xC08A3E), 2.0f, 18.0f, 0.02f};
+        case EyeState::Angry:
+            // 生气：上睑压低、瞳孔缩紧、虹膜转红、高频短促扫视。
+            return {0.38f, 0.04f, 0.82f, 7.0f, 3.0f, 600, 1200, 2400, 4800,
+                    lv_color_hex(0xFF3B30), 2.5f, 70.0f, 0.02f};
+        case EyeState::Sad:
+            // 难过：眼睑下垂、眼神往下、虹膜偏冷蓝、动作很慢。
+            return {0.44f, 0.18f, 0.88f, 5.0f, 1.0f, 1800, 3600, 4200, 7800,
+                    lv_color_hex(0x6A8BFF), 1.5f, 12.0f, 0.02f};
         case EyeState::Idle:
         default:
             // 待机：暖琥珀色、放松半眯、慢速随机看、偶尔眨眼。
             return {0.32f, 0.10f, 1.00f, 9.0f, 5.0f, 1400, 3400, 3000, 6500,
-                    lv_color_hex(0xFFB000)};
+                    lv_color_hex(0xFFB000), 3.5f, 35.0f, 0.03f};
     }
+}
+
+FlashduckDisplay::EyeState FlashduckDisplay::StateForEmotion(const char* emotion) {
+    if (emotion == nullptr) {
+        return EyeState::Idle;
+    }
+    // 服务端从回复里的 emoji 推断情绪（EMOJI_MAP），这里映射成眼神。
+    if (strcmp(emotion, "happy") == 0 || strcmp(emotion, "laughing") == 0 ||
+        strcmp(emotion, "funny") == 0 || strcmp(emotion, "delicious") == 0 ||
+        strcmp(emotion, "kissy") == 0 || strcmp(emotion, "confident") == 0 ||
+        strcmp(emotion, "loving") == 0 || strcmp(emotion, "winking") == 0) {
+        return EyeState::Happy;
+    }
+    if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "crying") == 0) {
+        return EyeState::Sad;
+    }
+    if (strcmp(emotion, "angry") == 0) {
+        return EyeState::Angry;
+    }
+    if (strcmp(emotion, "sleepy") == 0 || strcmp(emotion, "relaxed") == 0) {
+        return EyeState::Sleepy;
+    }
+    if (strcmp(emotion, "thinking") == 0 || strcmp(emotion, "confused") == 0 ||
+        strcmp(emotion, "surprised") == 0 || strcmp(emotion, "shocked") == 0 ||
+        strcmp(emotion, "curious") == 0 || strcmp(emotion, "silly") == 0 ||
+        strcmp(emotion, "embarrassed") == 0) {
+        return EyeState::Curious;
+    }
+    return EyeState::Idle;
 }
 
 void FlashduckDisplay::SetEyeState(EyeState state) {
@@ -238,7 +298,9 @@ void FlashduckDisplay::ApplyPupil() {
     if (pupil_ == nullptr) {
         return;
     }
-    const float scale = std::clamp(current_style_.pupil_scale, 0.75f, 1.30f);
+    const float scale = std::clamp(
+        current_style_.pupil_scale * (1.0f + current_style_.pupil_breathe * std::sin(breathe_phase_)),
+        0.60f, 1.45f);
     const int size = static_cast<int>(kPupilSize * scale + 0.5f);
     const int offset = (kIrisSize - size) / 2;
     lv_obj_set_size(pupil_, size, size);
@@ -252,9 +314,65 @@ void FlashduckDisplay::ApplyIrisColor() {
     lv_obj_set_style_bg_color(iris_, current_style_.iris_color, 0);
 }
 
-void FlashduckDisplay::ApplyLids(float blink_fraction) {
-    if (lid_top_ == nullptr || lid_bottom_ == nullptr) {
+void FlashduckDisplay::ApplySparkle(uint32_t now, float dt_s) {
+    (void)now;
+    if (highlight_ == nullptr || iris_ == nullptr) {
         return;
+    }
+
+    // 高光绕小圆慢慢转，眼珠看起来是"湿的、有神的"。
+    sparkle_angle_ += current_style_.sparkle_speed * dt_s;
+    if (sparkle_angle_ >= 360.0f) {
+        sparkle_angle_ -= 360.0f;
+    }
+    constexpr float kDeg2Rad = 3.14159265f / 180.0f;
+    const float rad = sparkle_angle_ * kDeg2Rad;
+    const float amp = std::max(0.0f, current_style_.sparkle_amp);
+
+    // 主高光：左上角小幅绕行 + 呼吸大小
+    const int base_cx = 16;
+    const int base_cy = 13;
+    const int sz = 8 + static_cast<int>(std::lround((std::sin(rad * 1.7f) + 1.0f) * 1.5f));
+    int cx = base_cx + static_cast<int>(std::lround(std::cos(rad) * amp));
+    int cy = base_cy + static_cast<int>(std::lround(std::sin(rad) * amp));
+    cx = std::clamp(cx, sz / 2 + 1, kIrisSize - sz / 2 - 1);
+    cy = std::clamp(cy, sz / 2 + 1, kIrisSize - sz / 2 - 1);
+    lv_obj_set_size(highlight_, sz, sz);
+    lv_obj_set_pos(highlight_, cx - sz / 2, cy - sz / 2);
+
+    // 副高光：相位相反，右下角，小一点
+    if (highlight2_ != nullptr) {
+        const int sz2 = 4 + static_cast<int>(std::lround((std::sin(rad * 1.3f + 1.9f) + 1.0f) * 0.8f));
+        int cx2 = 38 - static_cast<int>(std::lround(std::cos(rad) * amp * 0.55f));
+        int cy2 = 38 - static_cast<int>(std::lround(std::sin(rad) * amp * 0.55f));
+        cx2 = std::clamp(cx2, sz2 / 2 + 1, kIrisSize - sz2 / 2 - 1);
+        cy2 = std::clamp(cy2, sz2 / 2 + 1, kIrisSize - sz2 / 2 - 1);
+        lv_obj_set_size(highlight2_, sz2, sz2);
+        lv_obj_set_pos(highlight2_, cx2 - sz2 / 2, cy2 - sz2 / 2);
+    }
+}
+
+void FlashduckDisplay::ApplyLashes(int top_height) {
+    // 睫毛挂在黑色上眼睑的下沿，只在眼睑压低时露出（眨眼、困倦、生气）。
+    static const int kLashX[3] = {28, 52, 74};
+    const bool show = top_height >= 22;
+    const int y = kEyeOffset + top_height - 5;
+    for (int i = 0; i < 3; ++i) {
+        if (lash_[i] == nullptr) {
+            continue;
+        }
+        if (!show) {
+            lv_obj_add_flag(lash_[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_remove_flag(lash_[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_pos(lash_[i], kLashX[i], y);
+    }
+}
+
+int FlashduckDisplay::ApplyLids(float blink_fraction) {
+    if (lid_top_ == nullptr || lid_bottom_ == nullptr) {
+        return 0;
     }
     const float top_base = std::clamp(current_style_.upper_lid, 0.0f, 0.80f);
     const float bottom_base = std::clamp(current_style_.lower_lid, 0.0f, 0.60f);
@@ -266,6 +384,7 @@ void FlashduckDisplay::ApplyLids(float blink_fraction) {
     lv_obj_set_height(lid_top_, top_height);
     lv_obj_set_height(lid_bottom_, bottom_height);
     lv_obj_set_y(lid_bottom_, kEyeOffset + kEyeSize - bottom_height);
+    return top_height;
 }
 
 void FlashduckDisplay::SetChatMessage(const char* role, const char* content) {
@@ -279,8 +398,20 @@ void FlashduckDisplay::SetChatMessage(const char* role, const char* content) {
 }
 
 bool FlashduckDisplay::SetEmotion(const char* emotion) {
-    // 表情由眼睛自身的自然运动表达，忽略上层传入的 GIF 表情名。
-    (void)emotion;
+    // 服务端会随回复下发情绪名，映射成眼神；2.5 秒后回到 SetStatus 给的基础神态。
+    const EyeState s = StateForEmotion(emotion);
+    if (s == EyeState::Idle) {
+        if (eye_state_ != status_state_ &&
+            (state_hold_until_ == 0 ||
+             static_cast<int32_t>(lv_tick_get() - state_hold_until_) >= 0)) {
+            SetEyeState(status_state_);
+        }
+        return true;
+    }
+    if (eye_state_ != s) {
+        SetEyeState(s);
+    }
+    state_hold_until_ = lv_tick_get() + 2500;
     return true;
 }
 
@@ -393,6 +524,28 @@ void FlashduckDisplay::CreateEye() {
     lv_obj_set_style_border_width(highlight_, 0, 0);
     lv_obj_clear_flag(highlight_, LV_OBJ_FLAG_SCROLLABLE);
 
+    // 第二个小高光：和主高光反相绕行，眼睛看起来"湿润有神"。
+    highlight2_ = lv_obj_create(iris_);
+    lv_obj_set_size(highlight2_, 5, 5);
+    lv_obj_set_pos(highlight2_, 36, 36);
+    lv_obj_set_style_radius(highlight2_, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(highlight2_, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(highlight2_, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(highlight2_, 0, 0);
+    lv_obj_clear_flag(highlight2_, LV_OBJ_FLAG_SCROLLABLE);
+
+    // 三根睫毛：贴在黑色上眼睑的下沿，眼睑压低时才露出来（眨眼/困倦/生气）。
+    for (int i = 0; i < 3; ++i) {
+        lash_[i] = lv_obj_create(eye_root_);
+        lv_obj_set_size(lash_[i], 3, 7);
+        lv_obj_set_style_radius(lash_[i], 1, 0);
+        lv_obj_set_style_bg_color(lash_[i], lv_color_hex(0x1A1A1A), 0);
+        lv_obj_set_style_bg_opa(lash_[i], LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(lash_[i], 0, 0);
+        lv_obj_clear_flag(lash_[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(lash_[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
     lid_top_ = lv_obj_create(eye_root_);
     lv_obj_set_size(lid_top_, kEyeSize, 0);
     lv_obj_set_pos(lid_top_, kEyeOffset, kEyeOffset);
@@ -413,6 +566,12 @@ void FlashduckDisplay::CreateEye() {
 
     lv_obj_move_foreground(lid_top_);
     lv_obj_move_foreground(lid_bottom_);
+    // 睫毛要压在最上层，否则会被黑色眼睑盖住
+    for (int i = 0; i < 3; ++i) {
+        if (lash_[i] != nullptr) {
+            lv_obj_move_foreground(lash_[i]);
+        }
+    }
     if (status_bar_ != nullptr) {
         lv_obj_move_foreground(status_bar_);
     }
@@ -431,11 +590,21 @@ void FlashduckDisplay::UpdateEye() {
     }
 
     const uint32_t now = lv_tick_get();
+    const float dt_s = (last_frame_ms_ == 0)
+                           ? 0.033f
+                           : std::clamp(static_cast<float>(now - last_frame_ms_) / 1000.0f, 0.0f, 0.1f);
+    last_frame_ms_ = now;
+    breathe_phase_ += dt_s * 2.4f;
+    if (breathe_phase_ > 6.2831853f) {
+        breathe_phase_ -= 6.2831853f;
+    }
 
-    // 已连接是一个短暂神态，1.8 秒后自然回到待机眼神。
-    if (eye_state_ == EyeState::Connected && state_hold_until_ != 0 &&
-        static_cast<int32_t>(now - state_hold_until_) >= 0) {
-        SetEyeState(EyeState::Idle);
+    // 情绪表情 / 已连接这类短暂神态，到点回到 SetStatus 给的基础眼神。
+    if (state_hold_until_ != 0 && static_cast<int32_t>(now - state_hold_until_) >= 0) {
+        state_hold_until_ = 0;
+        if (eye_state_ != status_state_) {
+            SetEyeState(status_state_);
+        }
     }
 
     // 状态之间的眼睑/瞳孔/扫视范围平滑过渡，不硬切。
@@ -446,6 +615,12 @@ void FlashduckDisplay::UpdateEye() {
         (target_style_.pupil_scale - current_style_.pupil_scale) * kStyleLerp;
     current_style_.gaze_x += (target_style_.gaze_x - current_style_.gaze_x) * kStyleLerp;
     current_style_.gaze_y += (target_style_.gaze_y - current_style_.gaze_y) * kStyleLerp;
+    current_style_.sparkle_amp +=
+        (target_style_.sparkle_amp - current_style_.sparkle_amp) * kStyleLerp;
+    current_style_.sparkle_speed +=
+        (target_style_.sparkle_speed - current_style_.sparkle_speed) * kStyleLerp;
+    current_style_.pupil_breathe +=
+        (target_style_.pupil_breathe - current_style_.pupil_breathe) * kStyleLerp;
     auto lerp_channel = [](uint8_t from, uint8_t to) -> uint8_t {
         return static_cast<uint8_t>(from + (static_cast<int>(to) - static_cast<int>(from)) * 0.08f);
     };
@@ -545,5 +720,7 @@ void FlashduckDisplay::UpdateEye() {
         }
     }
 
-    ApplyLids(blink_fraction);
+    const int top_height = ApplyLids(blink_fraction);
+    ApplySparkle(now, dt_s);
+    ApplyLashes(top_height);
 }

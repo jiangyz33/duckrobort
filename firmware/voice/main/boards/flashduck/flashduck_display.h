@@ -22,7 +22,18 @@ public:
     void UpdateStatusBar(bool update_all = false) override;
 
 private:
-    enum class EyeState { Idle, Scanning, Connected, Listening, Speaking };
+    enum class EyeState {
+        Idle,
+        Scanning,
+        Connected,
+        Listening,
+        Speaking,
+        Happy,
+        Curious,
+        Sleepy,
+        Angry,
+        Sad,
+    };
 
     struct EyeStyle {
         float upper_lid;
@@ -35,15 +46,22 @@ private:
         uint32_t blink_min_ms;
         uint32_t blink_max_ms;
         lv_color_t iris_color;
+        float sparkle_amp;      // 高光绕行半径(px)，0=不动
+        float sparkle_speed;    // 高光绕行角速度(度/秒)
+        float pupil_breathe;    // 瞳孔呼吸幅度(0~0.15)
     };
 
     void CreateEye();
     void UpdateEye();
     void SetEyeState(EyeState state);
-    void ApplyLids(float blink_fraction);
+    int ApplyLids(float blink_fraction);
     void ApplyPupil();
     void ApplyIrisColor();
+    void ApplySparkle(uint32_t now, float dt_s);
+    void ApplyLashes(int top_height);
     void HideStatusLabel();
+    void SelectStatusState(EyeState state);
+    static EyeState StateForEmotion(const char* emotion);
     static EyeStyle StyleFor(EyeState state);
     static void OnEyeTimer(lv_timer_t* timer);
 
@@ -52,6 +70,8 @@ private:
     lv_obj_t* iris_ = nullptr;
     lv_obj_t* pupil_ = nullptr;
     lv_obj_t* highlight_ = nullptr;
+    lv_obj_t* highlight2_ = nullptr;
+    lv_obj_t* lash_[3] = {nullptr, nullptr, nullptr};
     lv_obj_t* lid_top_ = nullptr;
     lv_obj_t* lid_bottom_ = nullptr;
     lv_timer_t* eye_timer_ = nullptr;
@@ -67,10 +87,14 @@ private:
     float current_y_ = 0.0f;
 
     EyeState eye_state_ = EyeState::Idle;
+    EyeState status_state_ = EyeState::Idle;  // SetStatus 给的基础神态，表情播完回它
     bool eye_state_set_ = false;
     EyeStyle target_style_{};
     EyeStyle current_style_{};
     uint32_t state_hold_until_ = 0;
     uint32_t next_scan_ms_ = 0;
+    uint32_t last_frame_ms_ = 0;
+    float sparkle_angle_ = 0.0f;
+    float breathe_phase_ = 0.0f;
     bool scan_right_ = true;
 };

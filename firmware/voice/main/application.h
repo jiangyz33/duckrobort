@@ -126,6 +126,13 @@ public:
      */
     void ResetProtocol();
 
+    /**
+     * 主动播报（定时提醒用）
+     * 设备空闲时把 text 当作"用户说的话"发给服务端，服务端会用人设语气生成并念出回复。
+     * 非空闲状态直接返回 false，由调用方决定是否稍后重试。
+     */
+    bool SpeakProactive(const std::string& text);
+
 private:
     Application();
     ~Application();
@@ -155,6 +162,10 @@ private:
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
+    // 会话忙时收到的 notify 暂存，等回到 idle 再播（否则服务器主动推送会被直接丢掉）
+    bool has_pending_notify_ = false;
+    std::string pending_notify_url_;
+    std::vector<NotifySubtitle> pending_notify_subtitles_;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
@@ -169,6 +180,7 @@ private:
     void HandleActivationDoneEvent();
     void HandleWakeWordDetectedEvent();
     void ContinueOpenAudioChannel(ListeningMode mode);
+    void ContinueProactiveSpeak(const std::string& text);
     void BeginWakeWordInvoke(const std::string& wake_word);
     void ContinueWakeWordInvoke(const std::string& wake_word);
     void StartListeningAudio();
@@ -177,6 +189,7 @@ private:
     void HideStartupWakeWordHint();
     void StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
     void StopNotification();
+    void TryStartPendingNotification();
     void HandleNotificationFinished(uint32_t playback_id, bool success);
 
     // Activation task (runs in background)
