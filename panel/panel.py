@@ -363,6 +363,22 @@ pre{background:#0b0d11;border:1px solid #232833;border-radius:8px;padding:10px;o
 .chat{background:#0b0d11;border-radius:8px;padding:10px;min-height:44px;white-space:pre-wrap;font-size:14px;margin-top:10px}
 a{color:var(--acc)}
 .bar{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 30%);padding:12px 0 0;margin-top:-8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:9px}
+.tile{background:#12151c;border:1px solid #232833;border-radius:10px;padding:10px 12px}
+.tile .k{color:var(--dim);font-size:12px}
+.tile .v{font-size:18px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.tile .s{color:var(--dim);font-size:11px;margin-top:2px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.g-ok{color:var(--ok)} .g-bad{color:var(--bad)} .g-dim{color:var(--dim)}
+table.t{width:100%;border-collapse:collapse;font-size:13px}
+table.t th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:4px 6px;border-bottom:1px solid #232833}
+table.t td{padding:6px;border-bottom:1px solid #1c212b;vertical-align:middle}
+table.t tr:last-child td{border-bottom:0}
+.tag{display:inline-block;background:#1e2431;color:#b9c2d0;border-radius:6px;padding:2px 8px;font-size:12px;margin:2px 4px 2px 0}
+.tag.on{background:#12352a;color:var(--ok)}
+.tag.off{background:#2a1f1f;color:#8b7a7a}
+.small{font-size:12px;color:var(--dim)}
+details summary{cursor:pointer;color:var(--acc);font-size:13px;margin:6px 0}
 """
 
 
@@ -384,6 +400,144 @@ def login_page(err: str = "") -> str:
 <input type="password" name="pw" autofocus>
 <div style="margin-top:14px"><button type="submit">登录</button></div>
 </form></div>""")
+
+
+DASHBOARD_HTML = """
+<div class="card"><h2>📊 系统总览 <span class="small" id="ovts" style="float:right;font-weight:400"></span></h2>
+<div class="grid" id="tiles"><div class="small">加载中…</div></div></div>
+
+<div class="card"><h2>🐳 容器 / 进程</h2><div id="containers"><div class="small">加载中…</div></div></div>
+
+<div class="card"><h2>🦆 设备</h2>
+<div class="row" style="margin-bottom:10px">
+  <span class="small">局域网 IP</span>
+  <input type="text" id="devip" style="width:140px" placeholder="192.168.1.11">
+  <button class="ghost" type="button" onclick="saveIp()">保存</button>
+  <button class="ghost" type="button" onclick="shot()">刷新画面</button>
+  <span id="devstat" class="small"></span>
+</div>
+<img id="devshot" alt="" style="width:200px;image-rendering:pixelated;border-radius:10px;border:1px solid #232833;display:none">
+<div class="small" id="devhint" style="margin-top:8px">需要浏览器和鸭子在同一个 WiFi。显示的是设备屏幕的实时抓图（240×240）。</div>
+</div>
+
+<div class="card"><h2>✨ 服务端技能</h2><div id="features"><div class="small">加载中…</div></div>
+<details style="margin-top:10px"><summary>固件端能力清单（共 33 个动作 / 10 种眼神）</summary>
+<div id="fwcaps" class="small" style="line-height:1.9;margin-top:6px"></div></details>
+</div>
+
+<div class="card"><h2>🎵 曲库</h2><div id="music"><div class="small">加载中…</div></div></div>
+
+<script>
+const IP_KEY = 'duck_dev_ip';
+const FW_CAPS = {
+  '动作·移动': ['walk','turn','jump','swing','updown','sit','home','moonwalk','bend','shake_leg','whirlwind_leg','showcase'],
+  '动作·脖子': ['head_turn','head_shake','look_around'],
+  '动作·嘴与叫声': ['quack','chatter','mouth_open','mouth_close','mouth_move','yawn','sleepy'],
+  '动作·说话情绪': ['talk','laugh','sing','think','happy'],
+  '动作·组合': ['curious','preen','happy_waddle','stretch','dance','peck'],
+  '眼神': ['待机','连网扫描','已连接','聆听','说话','开心','好奇','困倦','生气','难过'],
+  '定时/待办': ['定时提醒','待办清单','倒计时·番茄钟','每日晨报'],
+  '其他': ['音乐播放','唇形同步','视觉识别','联网看门狗','OTA 自愈','待办持久化(NVS)'],
+};
+
+function el(id){ return document.getElementById(id); }
+function saveIp(){ localStorage.setItem(IP_KEY, el('devip').value.trim()); probe(); shot(); }
+function devIp(){ return (localStorage.getItem(IP_KEY) || el('devip').value || '').trim(); }
+
+function tile(k, v, s, cls){
+  return '<div class="tile"><div class="k">'+k+'</div><div class="v '+(cls||'')+'">'+v+'</div>'
+       + (s ? '<div class="s">'+s+'</div>' : '') + '</div>';
+}
+
+async function refresh(){
+  try{
+    const d = await (await fetch('api/overview', {cache:'no-store'})).json();
+    if (d.error){ el('tiles').innerHTML = '<div class="small g-bad">'+d.error+'</div>'; return; }
+    const h = d.host || {}, c = d.config || {};
+    el('tiles').innerHTML =
+      tile('CPU', (h.cpu ?? 0) + '%', h.uptime ? '已运行 ' + h.uptime : '') +
+      tile('内存', (h.mem_used ?? 0) + ' MB', (h.mem_pct ?? 0) + '% / ' + (h.mem_total ?? 0) + ' MB',
+           h.mem_pct > 85 ? 'g-bad' : '') +
+      tile('磁盘', (h.disk_used ?? 0) + ' GB', (h.disk_pct ?? 0) + '% / ' + (h.disk_total ?? 0) + ' GB',
+           h.disk_pct > 90 ? 'g-bad' : '') +
+      tile('大模型', c.llm || '—', '') +
+      tile('语音', c.tts || '—', c.asr || '') +
+      tile('长期记忆', c.memory ? '已开启' : '关闭',
+           c.memory ? '会记住聊过的事' : '每次都是新的', c.memory ? 'g-ok' : 'g-dim') +
+      tile('唤醒词', c.wake || '—', c.greeting ? '唤醒后会应答' : '了') +
+      tile('曲库', ((d.music || []).length) + ' 首', '');
+    el('ovts').textContent = d.ts || '';
+
+    const cs = d.containers || [];
+    el('containers').innerHTML = cs.length ? ('<table class="t"><tr><th>容器</th><th>状态</th><th></th></tr>' +
+      cs.map(x => '<tr><td>' + x.name + '<div class="small">' + (x.image||'') + '</div></td>'
+        + '<td><span class="dot" style="background:' + (x.state === 'running' ? 'var(--ok)' : 'var(--bad)') + '"></span>'
+        + (x.status || x.state) + '</td>'
+        + '<td><button type="button" class="ghost" style="padding:4px 10px;font-size:12px" onclick="restartSvc(\\'' + x.name + '\\')">重启</button></td></tr>').join('')
+        + '</table>') : '<div class="small">没有容器</div>';
+
+    const f = d.features || [];
+    el('features').innerHTML = f.length
+      ? f.map(x => '<span class="tag on">' + x.label + '</span>').join('')
+      : '<span class="tag off">没有启用任何技能</span>';
+
+    const m = d.music || [];
+    el('music').innerHTML = m.length ? ('<table class="t"><tr><th>曲目</th><th>大小</th><th>加入</th></tr>' +
+      m.map(x => '<tr><td>' + x.name + '</td><td>' + x.size + ' KB</td><td class="small">' + x.mtime + '</td></tr>').join('')
+      + '</table>') : '<div class="small">曲库为空，用 tools/convert-music.ps1 转码后传到 data/music/</div>';
+  }catch(e){
+    el('tiles').innerHTML = '<div class="small g-bad">读取失败：' + e + '</div>';
+  }
+}
+
+async function probe(){
+  const ip = devIp();
+  if (!ip){ el('devstat').textContent = ''; return; }
+  try{
+    await fetch('http://' + ip + '/api/status', {mode:'no-cors', cache:'no-store'});
+    el('devstat').innerHTML = '<span class="dot" style="background:var(--ok)"></span>在线';
+  }catch(e){
+    el('devstat').innerHTML = '<span class="dot" style="background:var(--bad)"></span>不可达';
+  }
+}
+
+function shot(){
+  const ip = devIp();
+  if (!ip) return;
+  const img = el('devshot');
+  img.style.display = 'block';
+  img.onerror = function(){ el('devhint').textContent = '抓不到画面：可能不在同一局域网，或设备离线。'; };
+  img.onload = function(){ el('devhint').textContent = '实时画面（240×240 原始分辨率，点「刷新画面」更新）'; };
+  img.src = 'http://' + ip + '/api/screen.bmp?t=' + Date.now();
+}
+
+async function restartSvc(name){
+  if (!confirm('确定重启 ' + name + ' ?\\n会短暂中断服务，约 10 秒。')) return;
+  try{
+    const r = await fetch('api/restart/' + encodeURIComponent(name), {method:'POST'});
+    const d = await r.json();
+    if (d.error) alert(d.error);
+  }catch(e){ alert('重启失败：' + e); }
+  setTimeout(refresh, 4000);
+}
+
+(function(){
+  el('devip').value = localStorage.getItem(IP_KEY) || '192.168.1.11';
+  const caps = el('fwcaps');
+  caps.innerHTML = Object.keys(FW_CAPS).map(function(k){
+    return '<div style="margin-bottom:6px"><b>' + k + '</b>：' +
+      FW_CAPS[k].map(function(x){ return '<span class="tag">' + x + '</span>'; }).join('') + '</div>';
+  }).join('');
+  refresh(); probe(); shot();
+  setInterval(refresh, 5000);
+  setInterval(probe, 12000);
+})();
+</script>
+"""
+
+
+def dashboard_html() -> str:
+    return DASHBOARD_HTML
 
 
 def form_page(c: dict, flash: str = "", bad: bool = False) -> str:
@@ -424,6 +578,7 @@ def form_page(c: dict, flash: str = "", bad: bool = False) -> str:
     return page(f"""
 <h1>🦆 小鸭控制台</h1>
 <div class="sub">改完点保存 → 自动重启后端（约 10 秒）· <a href="logout">退出</a></div>
+{DASHBOARD_HTML}
 <form method="post" action="save">
 {flash_html}
 
@@ -679,6 +834,166 @@ async def h_logs(request):
     return web.json_response({"logs": logs, "state": st_txt})
 
 
+# ---------------------------------------------------------------- 仪表盘接口
+_LAST_CPU = {"idle": 0, "total": 0}
+
+
+async def _docker_get(path: str, timeout: int = 10):
+    transport = httpx.AsyncHTTPTransport(uds=DOCKER_SOCK)
+    async with httpx.AsyncClient(transport=transport, base_url="http://docker") as c:
+        r = await c.get(path, timeout=timeout)
+        return r.status_code, r.json()
+
+
+def _cpu_pct() -> int:
+    try:
+        with open("/proc/stat") as f:
+            vals = [int(x) for x in f.readline().split()[1:]]
+    except Exception:  # noqa: BLE001
+        return 0
+    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+    total = sum(vals)
+    di = idle - _LAST_CPU["idle"]
+    dt = total - _LAST_CPU["total"]
+    _LAST_CPU["idle"], _LAST_CPU["total"] = idle, total
+    if dt <= 0:
+        return 0
+    return round((1 - di / dt) * 100)
+
+
+def _host_stats() -> dict:
+    out = {}
+    try:
+        with open("/proc/uptime") as f:
+            up = float(f.read().split()[0])
+        d, h, m = int(up // 86400), int(up % 86400 // 3600), int(up % 3600 // 60)
+        out["uptime"] = (f"{d} 天 " if d else "") + f"{h} 小时 {m} 分"
+    except Exception:  # noqa: BLE001
+        out["uptime"] = "?"
+    try:
+        mem = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                k, v = line.split(":", 1)
+                mem[k] = int(v.strip().split()[0])
+        total = mem.get("MemTotal", 0)
+        avail = mem.get("MemAvailable", 0)
+        out["mem_total"] = round(total / 1024)
+        out["mem_used"] = round((total - avail) / 1024)
+        out["mem_pct"] = round((total - avail) / total * 100) if total else 0
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import shutil
+
+        du = shutil.disk_usage("/")
+        out["disk_total"] = round(du.total / 2**30, 1)
+        out["disk_used"] = round(du.used / 2**30, 1)
+        out["disk_pct"] = round(du.used / du.total * 100) if du.total else 0
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _music_files() -> list:
+    d = "/data/music"
+    out = []
+    if not os.path.isdir(d):
+        return out
+    for name in sorted(os.listdir(d)):
+        if not name.lower().endswith(".ogg") or name.startswith("_"):
+            continue
+        try:
+            st = os.stat(os.path.join(d, name))
+        except OSError:
+            continue
+        out.append(
+            {
+                "name": os.path.splitext(name)[0],
+                "size": round(st.st_size / 1024),
+                "mtime": time.strftime("%m-%d %H:%M", time.localtime(st.st_mtime)),
+            }
+        )
+    return out
+
+
+async def h_overview(request):
+    if not authed(request):
+        return web.json_response({"error": "未登录"}, status=401)
+
+    cfg = {}
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception:  # noqa: BLE001
+        pass
+    sel = cfg.get("selected_module") or {}
+    voice = ((cfg.get("TTS") or {}).get("SiliconFlowTTS") or {}).get("voice") or ""
+    if "aemeath" in voice:
+        tts_label = "爱弥斯"
+    elif "daniya" in voice:
+        tts_label = "达妮娅"
+    elif voice:
+        tts_label = "硅基流动"
+    else:
+        tts_label = "Edge TTS"
+
+    containers = []
+    try:
+        _, data = await _docker_get("/containers/json?all=1")
+        for c in data:
+            names = [n for n in (c.get("Names") or []) if n]
+            containers.append(
+                {
+                    "name": names[0].lstrip("/") if names else "?",
+                    "state": c.get("State", ""),
+                    "status": c.get("Status", ""),
+                    "image": (c.get("Image") or "").split(":")[0][-30:],
+                }
+            )
+        containers.sort(key=lambda x: (x["state"] != "running", x["name"]))
+    except Exception as exc:  # noqa: BLE001
+        containers = [{"name": f"读取失败: {exc}", "state": "?", "status": "", "image": ""}]
+
+    feats = []
+    for fn in ((cfg.get("Intent") or {}).get("function_call") or {}).get("functions") or []:
+        feats.append({"key": fn, "label": dict(FUNCTIONS).get(fn, fn)})
+
+    return web.json_response(
+        {
+            "host": {**_host_stats(), "cpu": _cpu_pct()},
+            "containers": containers,
+            "config": {
+                "llm": ((cfg.get("LLM") or {}).get(sel.get("LLM", "")) or {}).get("model_name", "?"),
+                "asr": sel.get("ASR", "?"),
+                "tts": tts_label,
+                "memory": sel.get("Memory", "nomem") != "nomem",
+                "wake": "、".join(cfg.get("wakeup_words") or []),
+                "greeting": bool(cfg.get("enable_greeting")),
+            },
+            "features": feats,
+            "music": _music_files(),
+            "ts": time.strftime("%H:%M:%S"),
+        }
+    )
+
+
+RESTART_ALLOWED = {"xiaozhi-esp32-server", "xiaozhi-gateway", "duck-panel"}
+
+
+async def h_restart(request):
+    if not authed(request):
+        return web.json_response({"error": "未登录"}, status=401)
+    name = request.match_info.get("name", "")
+    if name not in RESTART_ALLOWED:
+        return web.json_response({"error": f"不允许重启 {name}"}, status=403)
+    try:
+        code = await docker_restart(name)
+        return web.json_response({"ok": True, "code": code})
+    except Exception as exc:  # noqa: BLE001
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 async def h_favicon(request):
     return web.Response(status=204)
 
@@ -692,6 +1007,8 @@ app.add_routes([
     web.post("/chat", h_chat),
     web.get("/tts", h_tts),
     web.get("/logs", h_logs),
+    web.get("/api/overview", h_overview),
+    web.post("/api/restart/{name}", h_restart),
     web.get("/favicon.ico", h_favicon),
 ])
 
