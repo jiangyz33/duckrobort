@@ -994,8 +994,202 @@ async def h_restart(request):
         return web.json_response({"error": str(exc)}, status=500)
 
 
+# ---------------------------------------------------------------- 小鲸（微信桥用）
+MEMORY_PATH = "/data/.memory.yaml"
+QUEUE_PATH = "/data/duck_cmd_queue.json"
+BRIDGE_TOKEN = os.environ.get("BRIDGE_TOKEN", "duck-bridge-2026")
+DEVICE_TOKEN = os.environ.get("DEVICE_CMD_TOKEN", "duck-cmd-2026")
+
+# 远程指令：说这些词就让鸭子做动作
+ACTION_WORDS = {
+    "太空步": "moonwalk", "风车腿": "whirlwind_leg", "抖腿": "shake_leg", "弯腰": "bend",
+    "跳舞": "dance", "舞蹈": "dance", "串烧": "showcase",
+    "伸懒腰": "stretch", "打哈欠": "yawn", "困了": "sleepy",
+    "摇头": "head_shake", "转头": "head_turn", "环顾": "look_around",
+    "嘎嘎": "quack", "鸭叫": "quack", "叫两声": "quack", "叫一声": "quack", "咂嘴": "chatter",
+    "坐下": "sit", "坐好": "sit",
+    "跳一下": "jump", "跳跳": "jump", "跳个": "jump", "蹦一下": "jump",
+    "走两步": "walk", "走走": "walk", "走几步": "walk", "前进": "walk",
+    "转个身": "turn", "转身": "turn", "后退": "turn",
+    "复位": "home", "回家": "home", "回去": "home",
+    "理羽": "preen", "开心": "happy", "大笑": "laugh", "唱歌": "sing",
+    "好奇": "curious", "侧头": "curious", "啄": "peck",
+}
+
+
+def _load_queue() -> list:
+    try:
+        with open(QUEUE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _save_queue(q: list) -> None:
+    try:
+        os.makedirs(os.path.dirname(QUEUE_PATH), exist_ok=True)
+        with open(QUEUE_PATH, "w", encoding="utf-8") as f:
+            json.dump(q[-200:], f, ensure_ascii=False)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def detect_command(text: str):
+    """从一句话里认出「让鸭子做什么」的意图。"""
+    for word, action in ACTION_WORDS.items():
+        if word not in text:
+            continue
+        asked = any(t in text for t in ("让", "叫", "帮", "给", "鸭子", "它", "鸭", "你"))
+        short = len(text) <= 6
+        if asked or short:
+            return action, word
+    return None, None
+
+
+def _memory_brief() -> str:
+    """把记忆文件压成一段给大模型看的摘要。"""
+    try:
+        with open(MEMORY_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:  # noqa: BLE001
+        return ""
+    blob = None
+    for v in data.values():
+        if isinstance(v, str):
+            try:
+                blob = json.loads(v)
+                break
+            except Exception:  # noqa: BLE001
+                continue
+    if not isinstance(blob, dict):
+        return ""
+
+    parts = []
+    ident = (blob.get("时空档案") or {}).get("身份图谱") or {}
+    if ident:
+        parts.append("【身份】" + "；".join(f"{k}: {v}" for k, v in ident.items()
+                                          if not isinstance(v, list)))
+        traits = ident.get("特征标记")
+        if isinstance(traits, list) and traits:
+            parts.append("【特征】" + "、".join(str(t) for t in traits[:5]))
+
+    topics = (blob.get("关系网络") or {}).get("高频话题") or {}
+    if isinstance(topics, dict) and topics:
+        top = sorted(topics.items(), key=lambda kv: -int(kv[1] or 0))[:8]
+        parts.append("【常聊】" + "、".join(str(k) for k, _ in top))
+
+    quotes = blob.get("高光语录") or []
+    if isinstance(quotes, list) and quotes:
+        recent = [str(q) for q in quotes[-8:]]
+        parts.append("【最近说过】" + " / ".join(recent))
+
+    return "\n".join(parts)
+
+
+async def xiaojing_reply(text: str):
+    """微信里的小鲸：人设 + 记忆 + 远程指令识别。"""
+    c = load_cfg()
+    system = c["prompt"]
+    mem = _memory_brief()
+    if mem:
+        system += ("\n\n[你记得的事 —— 自然用上，别像念档案]\n" + mem)
+    system += ("\n\n[当前渠道] 你现在是在微信里跟我打字聊天，不是喇叭说话。"
+               "回答简短口语化，1~3 句，不要用「语音」「扬声器」这类词。")
+
+    action, word = detect_command(text)
+    if action:
+        q = _load_queue()
+        q.append({
+            "id": secrets.token_hex(6),
+            "action": action,
+            "text": text,
+            "ts": int(time.time()),
+            "state": "pending",
+        })
+        _save_queue(q)
+        return (f"记下了——等鸭子上线我就让它「{word}」。"
+                f"（队列里有 {sum(1 for x in q if x['state'] == 'pending')} 条待执行）"), action
+
+    prov = PROVIDERS.get(c["provider"], PROVIDERS["deepseek"])
+    url = prov["base"].rstrip("/") + "/chat/completions"
+    payload = {
+        "model": c["llm_model"] or prov["model"],
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": text},
+        ],
+        "max_tokens": 300,
+        "temperature": 0.8,
+    }
+    async with httpx.AsyncClient(timeout=60) as cli:
+        r = await cli.post(url, json=payload, headers={"Authorization": f"Bearer {c['llm_key']}"})
+        j = r.json()
+    if "choices" not in j:
+        raise RuntimeError(json.dumps(j, ensure_ascii=False)[:300])
+    return j["choices"][0]["message"]["content"].strip(), None
+
+
+async def h_xiaojing(request):
+    """微信桥调用：{text} -> {reply, action}"""
+    body = await request.json()
+    if body.get("token") != BRIDGE_TOKEN:
+        return web.json_response({"error": "token 不对"}, status=403)
+    text = (body.get("text") or "").strip()
+    if not text:
+        return web.json_response({"error": "空消息"}, status=400)
+    try:
+        reply, action = await xiaojing_reply(text)
+        return web.json_response({"reply": reply, "action": action})
+    except Exception as exc:  # noqa: BLE001
+        return web.json_response({"error": f"{type(exc).__name__}: {exc}"[:300]}, status=500)
+
+
+async def h_cmd_pending(request):
+    """设备轮询：取待执行的远程指令。"""
+    if request.query.get("token") != DEVICE_TOKEN:
+        return web.json_response({"error": "token 不对"}, status=403)
+    q = _load_queue()
+    out = []
+    changed = False
+    for item in q:
+        if item.get("state") == "pending":
+            item["state"] = "dispatched"
+            item["dispatched_at"] = int(time.time())
+            changed = True
+            out.append({"id": item["id"], "action": item["action"]})
+    if changed:
+        _save_queue(q)
+    return web.json_response({"commands": out, "count": len(out)})
+
+
+async def h_cmd_ack(request):
+    """设备回执：某条指令执行完了。"""
+    body = await request.json()
+    if body.get("token") != DEVICE_TOKEN:
+        return web.json_response({"error": "token 不对"}, status=403)
+    cid = body.get("id")
+    q = _load_queue()
+    hit = False
+    for item in q:
+        if item.get("id") == cid:
+            item["state"] = "done"
+            item["done_at"] = int(time.time())
+            hit = True
+    if hit:
+        _save_queue(q)
+    return web.json_response({"ok": hit})
+
+
+async def h_cmd_list(request):
+    if not authed(request):
+        return web.json_response({"error": "未登录"}, status=401)
+    q = _load_queue()
+    return web.json_response({"commands": q[-50:]})
+
+
 async def h_favicon(request):
     return web.Response(status=204)
+
 
 
 app = web.Application()
@@ -1009,6 +1203,10 @@ app.add_routes([
     web.get("/logs", h_logs),
     web.get("/api/overview", h_overview),
     web.post("/api/restart/{name}", h_restart),
+    web.post("/api/xiaojing", h_xiaojing),
+    web.get("/api/cmd/pending", h_cmd_pending),
+    web.post("/api/cmd/ack", h_cmd_ack),
+    web.get("/api/cmd/list", h_cmd_list),
     web.get("/favicon.ico", h_favicon),
 ])
 
