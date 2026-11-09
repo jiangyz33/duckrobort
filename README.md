@@ -1,6 +1,7 @@
 # 🦆 DuckRobort
 
-> 一只会说达妮娅声音的桌面机器鸭 —— 基于开源项目 [Flashduck](https://github.com/FlashCat-Jordan/Flashduck) 的二次开发。
+> 一只住在桌面上的机器鸭 —— 会说爱弥斯的声音、记得你聊过的事、还能给你放歌。
+> 基于开源项目 [Flashduck](https://github.com/FlashCat-Jordan/Flashduck) 的二次开发。
 
 <p align="center">
   <a href="https://github.com/jiangyz33/duckrobort/releases/latest"><img alt="Firmware" src="https://img.shields.io/github/v/release/jiangyz33/duckrobort?label=firmware&style=flat-square&color=ffb703"></a>
@@ -27,7 +28,7 @@
 | 维度 | 原版 Flashduck | 这个版本 |
 |---|---|---|
 | **人格** | 通用助手人设 | 「小鲸」DeepSeek 鲸鱼娘（鲸鱼灵魂 + 鸭子身体） |
-| **音色** | Edge TTS 晓晓 | **《鸣潮》达妮娅零样本复刻**（硅基流动 CosyVoice2） |
+| **音色** | Edge TTS 晓晓 | **《鸣潮》爱弥斯零样本复刻**（硅基流动 CosyVoice2） |
 | **动作** | 20 个可调动作 | **33 个**（补全 talk/laugh/sing/think/happy/moonwalk 等） |
 | **说话** | 静态表情 | **嘴部随机开合**，跟随 TTS 节奏 |
 | **眼睛** | 5 种状态、单一高光 | **10 种神态 + 双高光绕行 + 瞳孔呼吸 + 睫毛 + 情绪联动** |
@@ -221,7 +222,7 @@ plugins:
 |---|---|
 | **移动** | `walk` `turn` `jump` `swing` `updown` `sit` `home` `moonwalk` `bend` `shake_leg` `whirlwind_leg` `showcase` |
 | **脖子** | `head_turn` `head_shake` `look_around` |
-| **嘴与叫声** | `quack`（带达妮娅音效）`chatter` `mouth_open` `mouth_close` `mouth_move` `yawn` `sleepy` |
+| **嘴与叫声** | `quack`（带爱弥斯音效）`chatter` `mouth_open` `mouth_close` `mouth_move` `yawn` `sleepy` |
 | **说话/情绪** | `talk` `laugh` `sing` `think` `happy` |
 | **组合** | `curious` `preen` `happy_waddle` `stretch` `dance` `peck` |
 
@@ -336,7 +337,7 @@ LEDC 50Hz → 500~2500µs ↔ -90~90°
 | `main/boards/flashduck/flashduck_display.{h,cc}` | 眼睛动画重写：10 神态、双高光、睫毛、瞳孔呼吸、情绪映射 |
 | `main/boards/flashduck/flashduck_controller.cc` | 动作从 20 → 33、队列满报错、说话嘴型、quack 音效、定时提醒挂载 |
 | `main/boards/flashduck/flashduck_robot.cc` | **联网看门狗** |
-| `main/assets/common/quack.ogg` | **新增** 达妮娅音色合成的「嘎嘎」 |
+| `main/assets/common/quack.ogg` | **新增** 爱弥斯音色合成的「嘎嘎」 |
 | `main/application.{h,cc}` | 主动播报 `SpeakProactive()`、notify 排队补播 |
 | `main/device_state_machine.cc` | `FatalError → Idle` 逃生通道 |
 | `main/boards/flashduck/config.json` | 板卡编译参数（OTA 地址留了占位符） |
@@ -403,7 +404,7 @@ ffmpeg -i quack.mp3 -af "silenceremove=start_periods=1:start_threshold=-45dB" \
 - **没有 RTC**：时间完全依赖开机时从服务端同步，断网时提醒不可靠（加 DS3231 可解决）
 - **提醒播完后麦克风仍开 2 分钟**（服务端 `close_connection_no_voice_time` 默认 120s）
 - **唤醒词不可改**：`小鸭小鸭` 是编译期选定的 ESP-SR 模型，换词需要重编固件
-- **角色音色版权**：达妮娅是《鸣潮》（库洛游戏）的角色，此音色仅供个人使用，请勿商用
+- **角色音色版权**：爱弥斯 / 达妮娅是《鸣潮》（库洛游戏）的角色，零样本复刻的音色仅供个人使用，请勿商用
 
 ---
 
@@ -414,7 +415,8 @@ ffmpeg -i quack.mp3 -af "silenceremove=start_periods=1:start_threshold=-45dB" \
 - **[FlashCat-Jordan/Flashduck](https://github.com/FlashCat-Jordan/Flashduck)** —— 硬件设计、板级代码、步态算法（MIT）
 - **[78/xiaozhi-esp32](https://github.com/78/xiaozhi-esp32)** —— 语音固件框架
 - **[xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server)** —— 服务端
-- **[huanx/daniya-voice-gptsovits](https://huggingface.co/datasets/huanx/daniya-voice-gptsovits)** —— 达妮娅参考音频数据集
+- **[XRailgunX/Aemeath-Audio-Dataset](https://huggingface.co/datasets/XRailgunX/Aemeath-Audio-Dataset)** —— 爱弥斯参考音频数据集（当前音色）
+- **[huanx/daniya-voice-gptsovits](https://huggingface.co/datasets/huanx/daniya-voice-gptsovits)** —— 达妮娅参考音频数据集（上一版音色）
 - **[Open-Meteo](https://open-meteo.com/)** —— 免 key 天气数据
 
 固件代码沿用上游 **MIT License**；`firmware/duckclaw/` 目录（本项目未改动）为 **CC BY-NC-SA 4.0**。
