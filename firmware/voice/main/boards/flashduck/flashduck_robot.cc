@@ -20,6 +20,7 @@
 #include "led/single_led.h"
 #include "mcp_server.h"
 #include "flashduck_display.h"
+#include "flashduck_remote_cmd.h"
 #include "flashduck_web_server.h"
 #include "power_manager.h"
 #include "settings.h"
@@ -517,6 +518,8 @@ public:
 
         InitializeFlashduckController();
         GetBacklight()->RestoreBrightness();
+        // TODO 远程指令轮询导致启动卡死，先关闭，查明原因后再启用
+        // StartFlashduckRemoteCmdPoller();
     }
 
     virtual AudioCodec* GetAudioCodec() override { return audio_codec_; }

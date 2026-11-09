@@ -19,5 +19,8 @@ void FlashduckStartWalk(int steps, int speed, int direction, int hip_offset, int
 void FlashduckStop();
 bool FlashduckIsMoving();
 
+// 远程指令：按名字执行一个动作（微信/服务端下发）。成功入队返回 true。
+bool FlashduckRunAction(const char* action_name);
+
 FlashduckGaitParams FlashduckGetGaitDefaults();
 void FlashduckSaveGaitDefaults(const FlashduckGaitParams& gait);

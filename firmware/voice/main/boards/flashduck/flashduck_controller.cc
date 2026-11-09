@@ -770,6 +770,119 @@ public:
 
         ESP_LOGI(TAG, "self.flashduck MCP 工具注册完成");
     }
+
+    /// 远程指令：按动作名执行（微信/服务端下发用）。
+    /// 参数走默认值，行为和 MCP 工具里同名动作一致。
+    bool RunActionByName(const std::string& action) {
+        if (action_queue_ == nullptr) {
+            return false;
+        }
+        const auto& g = gait_defaults_;
+        if (action == "walk") {
+            return QueueAction(ACTION_WALK, 3, g.speed, 1, 0, g.head_swing, g.hip_offset,
+                               g.hip_amp, g.foot_amp, g.phase_deg);
+        }
+        if (action == "turn") {
+            return QueueAction(ACTION_TURN, 3, g.speed, 1, 0, g.head_swing, g.hip_offset,
+                               g.hip_amp, g.foot_amp, g.phase_deg);
+        }
+        if (action == "jump") {
+            return QueueAction(ACTION_JUMP, 2, 700, 0, 0);
+        }
+        if (action == "swing") {
+            return QueueAction(ACTION_SWING, 3, 700, 0, 30);
+        }
+        if (action == "updown") {
+            return QueueAction(ACTION_UPDOWN, 3, 700, 0, 30);
+        }
+        if (action == "sit") {
+            return QueueAction(ACTION_SIT, 1, 0, 0, 0);
+        }
+        if (action == "home") {
+            return QueueAction(ACTION_HOME, 1, 700, 0, 0);
+        }
+        if (!has_head_) {
+            ESP_LOGW(TAG, "没有脖子/嘴巴舵机，忽略 %s", action.c_str());
+            return false;
+        }
+        if (action == "head_turn") {
+            return QueueAction(ACTION_HEAD_TURN, 1, 700, 1, 0);
+        }
+        if (action == "head_shake") {
+            return QueueAction(ACTION_HEAD_SHAKE, 3, 700, 0, 30);
+        }
+        if (action == "look_around") {
+            return QueueAction(ACTION_LOOK_AROUND, 1, 700, 0, 0);
+        }
+        if (action == "quack") {
+            return QueueAction(ACTION_QUACK, 2, 400, 0, 10);
+        }
+        if (action == "chatter") {
+            return QueueAction(ACTION_CHATTER, 3, 300, 0, 8);
+        }
+        if (action == "curious") {
+            return QueueAction(ACTION_CURIOUS, 1, 700, 1, 30);
+        }
+        if (action == "preen") {
+            return QueueAction(ACTION_PREEN, 1, 700, 1, 30);
+        }
+        if (action == "happy_waddle") {
+            return QueueAction(ACTION_HAPPY_WADDLE, 2, 700, 1, 0);
+        }
+        if (action == "stretch") {
+            return QueueAction(ACTION_STRETCH, 1, 700, 0, 0);
+        }
+        if (action == "dance") {
+            return QueueAction(ACTION_DANCE, 1, 700, 1, 30);
+        }
+        if (action == "peck") {
+            return QueueAction(ACTION_PECK, 1, 700, 1, 30);
+        }
+        if (action == "yawn") {
+            return QueueAction(ACTION_YAWN, 1, 700, 0, 0);
+        }
+        if (action == "sleepy") {
+            return QueueAction(ACTION_SLEEPY, 3, 700, 0, 30);
+        }
+        if (action == "moonwalk") {
+            return QueueAction(ACTION_MOONWALK, 3, 700, 1, 30);
+        }
+        if (action == "bend") {
+            return QueueAction(ACTION_BEND, 3, 700, 1, 0);
+        }
+        if (action == "shake_leg") {
+            return QueueAction(ACTION_SHAKE_LEG, 3, 700, 1, 0);
+        }
+        if (action == "whirlwind_leg") {
+            return QueueAction(ACTION_WHIRLWIND_LEG, 3, 700, 0, 30);
+        }
+        if (action == "showcase") {
+            return QueueAction(ACTION_SHOWCASE, 1, 700, 0, 0);
+        }
+        if (action == "mouth_open") {
+            return QueueAction(ACTION_MOUTH_OPEN, 1, 700, 0, 0);
+        }
+        if (action == "mouth_close") {
+            return QueueAction(ACTION_MOUTH_CLOSE, 1, 700, 0, 0);
+        }
+        if (action == "mouth_move" || action == "talk") {
+            return QueueAction(ACTION_MOUTH_MOVE, 3, 700, 0, 30);
+        }
+        if (action == "laugh") {
+            return QueueAction(ACTION_LAUGH, 3, 700, 0, 30);
+        }
+        if (action == "sing") {
+            return QueueAction(ACTION_SING, 3, 700, 0, 30);
+        }
+        if (action == "think") {
+            return QueueAction(ACTION_THINK, 3, 700, 0, 30);
+        }
+        if (action == "happy") {
+            return QueueAction(ACTION_HAPPY, 3, 700, 0, 30);
+        }
+        ESP_LOGW(TAG, "未知动作 %s", action.c_str());
+        return false;
+    }
 };
 
 static FlashduckController* g_flashduck_controller = nullptr;
@@ -813,4 +926,11 @@ void FlashduckSaveGaitDefaults(const FlashduckGaitParams& gait) {
     if (g_flashduck_controller != nullptr) {
         g_flashduck_controller->SaveGaitDefaults(gait);
     }
+}
+
+bool FlashduckRunAction(const char* action_name) {
+    if (g_flashduck_controller == nullptr || action_name == nullptr) {
+        return false;
+    }
+    return g_flashduck_controller->RunActionByName(action_name);
 }
