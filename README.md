@@ -3,6 +3,7 @@
 > 一只会说达妮娅声音的桌面机器鸭 —— 基于开源项目 [Flashduck](https://github.com/FlashCat-Jordan/Flashduck) 的二次开发。
 
 <p align="center">
+  <a href="https://github.com/jiangyz33/duckrobort/releases/latest"><img alt="Firmware" src="https://img.shields.io/github/v/release/jiangyz33/duckrobort?label=firmware&style=flat-square&color=ffb703"></a>
   <img alt="MCU: ESP32-S3" src="https://img.shields.io/badge/MCU-ESP32--S3-1f6feb?style=flat-square">
   <img alt="ESP-IDF 6.0.1+" src="https://img.shields.io/badge/ESP--IDF-6.0.1%2B-black?style=flat-square">
   <img alt="6 servos" src="https://img.shields.io/badge/Servos-6-orange?style=flat-square">
@@ -90,6 +91,27 @@
 ---
 
 ## 快速开始
+
+### 0. 或者直接用现成固件
+
+不想自己编译的话，[**下载 Release 里的固件**](https://github.com/jiangyz33/duckrobort/releases/latest) 直接烧：
+
+| 文件 | 偏移 | 用途 |
+|---|---|---|
+| `merged-binary.bin` | `0x0` | 整包，首次刷机 |
+| `xiaozhi.bin` | `0x20000` | 仅应用，保留 WiFi / 步态 / 待办 |
+| `generated_assets.bin` | `0x800000` | 只更新 assets 分区 |
+
+```bash
+esptool --chip esp32s3 -p COM3 -b 460800 \
+  write-flash --flash-mode dio --flash-freq 80m --flash-size 16MB \
+  0x0 merged-binary.bin
+```
+
+附件里还有 `FLASH.md`（详细步骤）和 `SHA256SUMS.txt`（校验和）。
+
+> 📦 当前版本：**[fw-v1.0.0](https://github.com/jiangyz33/duckrobort/releases/tag/fw-v1.0.0)** —— 双眼 Kawaii 动画、唇形同步、33 个动作、待办/计时/晨报。
+> 固件二进制**不放在 git 历史里**（每次 2.6 MB 会把仓库撑大），统一走 Release。
 
 ### 1. 编译固件
 
