@@ -443,9 +443,10 @@ private:
         config.pin_reset = CAMERA_RESET;
         config.xclk_freq_hz = CAMERA_XCLK_FREQ;
         config.pixel_format = PIXFORMAT_RGB565;
-        config.frame_size = FRAMESIZE_240X240;
-        config.jpeg_quality = 12;
-        config.fb_count = 1;
+        // 240x240 拍出来太糊（VLM 明确说"图片模糊无法判断"），提到 VGA
+        config.frame_size = FRAMESIZE_VGA;
+        config.jpeg_quality = 10;
+        config.fb_count = 2;
         config.fb_location = CAMERA_FB_IN_PSRAM;
         config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
