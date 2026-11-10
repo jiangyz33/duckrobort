@@ -443,8 +443,8 @@ private:
         config.pin_reset = CAMERA_RESET;
         config.xclk_freq_hz = CAMERA_XCLK_FREQ;
         config.pixel_format = PIXFORMAT_RGB565;
-        // 240x240 拍出来太糊（VLM 明确说"图片模糊无法判断"），提到 VGA
-        config.frame_size = FRAMESIZE_VGA;
+        // 1024x768：RGB565 下两帧缓冲 + 编码缓冲约 4.7MB，8MB PSRAM 够用
+        config.frame_size = FRAMESIZE_XGA;
         config.jpeg_quality = 10;
         config.fb_count = 2;
         config.fb_location = CAMERA_FB_IN_PSRAM;
